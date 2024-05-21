@@ -19,6 +19,7 @@ end
 levy_tail_mass(p::GammaProcess, x::Real) = -p.γ * expinti(-x * p.λ)
 
 # Computed using Halley iterations
+# TODO: for C = 2.1, β = 0.5, c = 5.5, this is returning negative values
 function inverse_levy_tail_mass(p::GammaProcess, Γ::Real; tol=1e-9, max_iter=100)
     # Initial guess from approximation E1(x) ≈ -γ - log(x)
     x = exp(-Γ / p.λ - MathConstants.eulergamma) / p.λ
@@ -59,7 +60,7 @@ end
 
 levy_density(p::GammaDominatingProcess, x::Real) = p.γ / (x * (1 + p.λ * x))
 levy_tail_mass(p::GammaDominatingProcess, x::Real) = p.γ * log(1 + 1 / (p.λ * x))
-inverse_levy_tail_mass(p::GammaDominatingProcess, Γ::Real) = 1 / (p.γ * (exp(Γ / p.γ) - 1))
+inverse_levy_tail_mass(p::GammaDominatingProcess, Γ::Real) = 1 / (p.λ * (exp(Γ / p.γ) - 1))
 
 const TruncatedGammaDominatingProcess{T<:Real} = TruncatedSubordinator{GammaDominatingProcess{T},T}
 sample(rng::AbstractRNG, p::TruncatedGammaDominatingProcess, dt::Real) = sample(rng, p, dt, Inversion)
