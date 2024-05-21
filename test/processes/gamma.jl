@@ -13,6 +13,13 @@ let
         @test inverse_levy_tail_mass(test_process, Γ) ≈ test_x
     end
 
+    # Tests for the dominating process used in rejection sampling
+    @testset "Dominating process" begin
+        dominating_process = LevyProcesses.GammaDominatingProcess(0.9, 1.1)
+        @test levy_tail_mass(dominating_process, test_x) ≈ quadgk(Base.Fix1(levy_density, dominating_process), test_x, Inf)[1]
+        @test inverse_levy_tail_mass(dominating_process, levy_tail_mass(dominating_process, test_x)) ≈ test_x
+    end
+
     @testset "Rejection sampling" begin
         p = truncate(test_process, test_ϵ)
         REPS = 1000
