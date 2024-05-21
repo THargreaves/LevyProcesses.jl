@@ -10,4 +10,8 @@ using Test
         include("processes/gamma.jl")
     end
 
+    @testset "Stable process tests" begin
+        include("processes/stable.jl")
+    end
+
 end

@@ -94,6 +94,7 @@ include("utils.jl")
 
 # Process definitions
 include("processes/gamma.jl")
+include("processes/stable.jl")
 
 # Sampling methods
 include("sampling.jl")
