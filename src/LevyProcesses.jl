@@ -106,4 +106,7 @@ include("processes/nvm.jl")
 # Sampling methods
 include("sampling.jl")
 
+# SDEs
+include("sdes.jl")
+
 end # module LevyProcesses
