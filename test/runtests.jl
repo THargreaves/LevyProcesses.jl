@@ -14,4 +14,8 @@ using Test
         include("processes/stable.jl")
     end
 
+    @testset "Normal variance mean process tests" begin
+        include("processes/nvm.jl")
+    end
+
 end

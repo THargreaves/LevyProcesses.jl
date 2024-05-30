@@ -48,6 +48,12 @@ struct SampleJumps{T<:Real}
     jump_sizes::Vector{T}
 end
 
+struct MarginalisedSampleJumps{T<:Real}
+    jump_times::Vector{T}
+    jump_means::Vector{T}
+    jump_variances::Vector{T}
+end
+
 function unnormalised_sample_jumps_density(
     p::TruncatedLevyProcess,
     dt::Real,
@@ -95,6 +101,7 @@ include("utils.jl")
 # Process definitions
 include("processes/gamma.jl")
 include("processes/stable.jl")
+include("processes/nvm.jl")
 
 # Sampling methods
 include("sampling.jl")
