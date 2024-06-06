@@ -21,7 +21,7 @@ let
     end
 
     @testset "Rejection sampling" begin
-        p = truncate(test_process, test_ϵ)
+        p = TruncatedLevyProcess(test_process; l=test_ϵ)
         REPS = 1000
         rng = MersenneTwister(1234)
 
@@ -38,7 +38,7 @@ let
     end
 
     @testset "Inverse Lévy measure sampling" begin
-        p = truncate(test_process, test_ϵ)
+        p = TruncatedLevyProcess(test_process; l=test_ϵ)
         REPS = 1000
         rng = MersenneTwister(1234)
 

@@ -1,10 +1,10 @@
 abstract type LevySamplingMethod end
 
-import Distributions: Exponential
+import Distributions: Poisson, Uniform
 
 export Inversion, Rejection
 
-# # Expected methods
+# Expected methods
 function sample(p::LevyProcess, dt::Real)
     error("no default sampling procedure defined for $(typeof(p))")
 end
@@ -13,19 +13,12 @@ end
 struct InversionMethod <: LevySamplingMethod end
 const Inversion = InversionMethod()
 
-# TODO: rewrite in terms of Poisson(dt * λ_ϵ)
-function sample(rng::AbstractRNG, p::TruncatedSubordinator, dt::Real, ::InversionMethod)
-    jump_sizes = Vector{Float64}()
-    Γ = 0.0
-    while true
-        Γ += rand(rng, Exponential(1 / dt))
-        x = inverse_levy_tail_mass(p.process, Γ)
-        if x < p.ϵ
-            break
-        end
-        push!(jump_sizes, x)
-    end
-    jump_times = dt * rand(rng, length(jump_sizes))
+# TODO: this is only valid for subordinators
+function sample(rng::AbstractRNG, p::TruncatedLevyProcess, dt::Real, ::InversionMethod)
+    N = rand(rng, Poisson(dt * p.mass))
+    Γs = rand(rng, Uniform(p.upper_tail_mass, p.lower_tail_mass), N)
+    jump_sizes = inverse_levy_tail_mass.(Ref(p.process), Γs)
+    jump_times = rand(rng, Uniform(0, dt), N)
     return SampleJumps(jump_times, jump_sizes)
 end
 
@@ -35,10 +28,9 @@ const Rejection = RejectionMethod()
 
 function sample(
     rng::AbstractRNG,
-    p::TruncatedSubordinator, dt::Real,
-    p₀::TruncatedSubordinator,
+    p::TruncatedLevyProcess, dt::Real,
+    p₀::TruncatedLevyProcess,
     ::RejectionMethod;
-    # TODO: Should this be a separate method?
     levy_density_ratio::Union{Function,Nothing}=nothing
 )
     dominating_jumps = sample(rng, p₀, dt)

@@ -19,7 +19,7 @@ const VarianceGammaProcess{T<:AbstractFloat} = NormalVarianceMeanProcess{GammaPr
 ################################################
 
 const PreTruncatedNormalVarianceMeanProcess{T<:AbstractFloat} =
-    NormalVarianceMeanProcess{TruncatedLevyProcess{GammaProcess{T},T},T}
+    NormalVarianceMeanProcess{TruncatedLevyProcess{GammaProcess{T}},T}
 
 function sample(rng::AbstractRNG, p::PreTruncatedNormalVarianceMeanProcess, dt::Real)
     subordinator_path = sample(rng, p.subordinator, dt)
@@ -42,7 +42,7 @@ end
 ####  VARIANCE GAMMA PROCESS ####
 #################################
 
-const TruncatedVarianceGammaProcess{T<:AbstractFloat} = TruncatedLevyProcess{VarianceGammaProcess{T},T}
+const TruncatedVarianceGammaProcess{T<:AbstractFloat} = TruncatedLevyProcess{VarianceGammaProcess{T}}
 
 struct VarianceGammaMarginal{T<:Real} <: ContinuousUnivariateDistribution
     μ::T
@@ -73,8 +73,8 @@ function sample(rng::AbstractRNG, p::TruncatedVarianceGammaProcess{T}, dt::T) wh
     γ_pos = shared_term + p.process.μ / 2
     γ_neg = shared_term - p.process.μ / 2
 
-    positive_process = truncate(GammaProcess(γ_pos, γ_pos^2 * κ), p.ϵ)
-    negative_process = truncate(GammaProcess(γ_neg, γ_neg^2 * κ), p.ϵ)
+    positive_process = TruncatedLevyProcess(GammaProcess(γ_pos, γ_pos^2 * κ), p.lower, p.upper)
+    negative_process = TruncatedLevyProcess(GammaProcess(γ_neg, γ_neg^2 * κ), p.lower, p.upper)
 
     positive_jumps = sample(rng, positive_process, dt)
     negative_jumps = sample(rng, negative_process, dt)

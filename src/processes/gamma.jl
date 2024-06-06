@@ -47,8 +47,7 @@ end
 #### TRUNCATED GAMMA PROCESS ####
 #################################
 
-# TODO: are the types correct here?
-const TruncatedGammaProcess{T<:Real} = TruncatedLevyProcess{GammaProcess{T},T}
+const TruncatedGammaProcess{T<:Real} = TruncatedLevyProcess{GammaProcess{T}}
 
 #### Rejection Sampling ####
 
@@ -62,12 +61,12 @@ levy_density(p::GammaDominatingProcess, x::Real) = p.γ / (x * (1 + p.λ * x))
 levy_tail_mass(p::GammaDominatingProcess, x::Real) = p.γ * log(1 + 1 / (p.λ * x))
 inverse_levy_tail_mass(p::GammaDominatingProcess, Γ::Real) = 1 / (p.λ * (exp(Γ / p.γ) - 1))
 
-const TruncatedGammaDominatingProcess{T<:Real} = TruncatedSubordinator{GammaDominatingProcess{T},T}
+const TruncatedGammaDominatingProcess{T<:Real} = TruncatedLevyProcess{GammaDominatingProcess{T}}
 sample(rng::AbstractRNG, p::TruncatedGammaDominatingProcess, dt::Real) = sample(rng, p, dt, Inversion)
 
 # Default sampling method — roughly 2x faster than Inversion
 function sample(rng::AbstractRNG, p::TruncatedGammaProcess{T}, dt::Real) where {T}
-    p₀ = truncate(GammaDominatingProcess(p.process.γ, p.process.λ), p.ϵ)
+    p₀ = TruncatedLevyProcess(GammaDominatingProcess(p.process.γ, p.process.λ), p.lower, p.upper)
     levy_density_ratio(x) = (1 + p.process.λ * x) * exp(-p.process.λ * x)
     return sample(rng, p, dt, p₀, Rejection; levy_density_ratio=levy_density_ratio)
 end

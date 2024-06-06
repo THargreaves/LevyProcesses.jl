@@ -29,19 +29,7 @@ function log_levy_density(p::LevyProcess, x::Real)
     return log(levy_density(p, x))
 end
 
-struct TruncatedLevyProcess{P<:LevyProcess,T<:Real} <: LevyProcess
-    process::P
-    ϵ::T
-end
-Base.truncate(p::LevyProcess, ϵ::Real) = TruncatedLevyProcess(p, ϵ)
-# TODO: this isn't aware that it is a subordinator still
-const TruncatedSubordinator{P<:Subordinator,T<:Real} = TruncatedLevyProcess{P,T}
-
-# Default methods
-function levy_tail_mass(p::TruncatedLevyProcess)
-    @warn "levy_tail_mass not implemented for $(typeof(p)), numerically integrating levy_density"
-    return quadgk(Base.Fix1(levy_density, p), p.ϵ, Inf)[1]
-end
+include("truncate.jl")
 
 struct SampleJumps{T<:Real}
     jump_times::Vector{T}
@@ -72,7 +60,7 @@ function normalised_sample_jumps_density(
     path::SampleJumps
 )
     unnormalised_density = unnormalised_sample_jumps_density(p, dt, path)
-    return unnormalised_density * exp(-dt * levy_tail_mass(p.ϵ))
+    return unnormalised_density * exp(-dt * p.mass)
 end
 
 function log_unnormalised_sample_jumps_density(
@@ -93,7 +81,7 @@ function log_normalised_sample_jumps_density(
     path::SampleJumps
 )
     unnormalised_density = log_unnormalised_sample_path_density(p, dt, path)
-    return unnormalised_density - dt * levy_tail_mass(p.ϵ)
+    return unnormalised_density - dt * p.mass
 end
 
 include("utils.jl")
