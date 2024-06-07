@@ -1,8 +1,10 @@
 using HypothesisTests
-using LevyProcesses
 using QuadGK
 using Random
+using SpecialFunctions
 using Test
+
+using LevyProcesses
 
 @testset "Process tests" begin
 

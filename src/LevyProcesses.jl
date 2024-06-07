@@ -92,7 +92,8 @@ include("processes/stable.jl")
 include("processes/nvm.jl")
 
 # Sampling methods
-include("sampling.jl")
+include("sampling/jumps.jl")
+include("sampling/residual_increments.jl")
 
 # SDEs
 include("sdes.jl")

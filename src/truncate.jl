@@ -61,3 +61,14 @@ function levy_tail_mass(p::TruncatedLevyProcess, x::T) where {T<:Real}
         return 0.0
     end
 end
+
+### Marginals
+
+struct TruncatedLevyProcessMarginal{P<:TruncatedLevyProcess}
+    process::P
+    t::Float64
+end
+
+function marginal(p::TruncatedLevyProcess, t::Real)
+    TruncatedLevyProcessMarginal(p, t)
+end

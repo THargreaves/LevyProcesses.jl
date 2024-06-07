@@ -29,4 +29,33 @@ let
         @test pvalue(test) > 0.1
     end
 
+    @testset "Small jump increments" begin
+        α = 0.5
+        # TODO: generalise to other values of C
+        C = α / gamma(1 - α)
+        t = 2.0
+
+        p = TruncatedLevyProcess(StableSubordinator(α, C); u=1.0)
+        rng = MersenneTwister(1234)
+
+        # Simulate increment via jumps
+        n_approx = 1000
+        p_approx = TruncatedLevyProcess(StableSubordinator(α, C); u=1.0, l=1e-9)
+        approx_samples = [
+            sum(sample(rng, p_approx, t, Inversion).jump_sizes)
+            for _ in 1:n_approx
+        ]
+
+        # Simulate increment exactly
+        n_exact = 1000
+        m = marginal(p, t)
+        exact_samples = [
+            sample(rng, m, HittingTime)
+            for _ in 1:n_exact
+        ]
+
+        # Compare distributions
+        test = ApproximateTwoSampleKSTest(approx_samples, exact_samples)
+        @test pvalue(test) > 0.1
+    end
 end
