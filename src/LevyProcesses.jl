@@ -84,8 +84,6 @@ function log_normalised_sample_jumps_density(
     return unnormalised_density - dt * p.mass
 end
 
-include("utils.jl")
-
 # Process definitions
 include("processes/gamma.jl")
 include("processes/stable.jl")
