@@ -34,7 +34,7 @@ let
 
     @testset "SDE marginal" begin
         a = -0.5
-        b = 0.0
+        b = 0.4
         rng = MersenneTwister(1234)
 
         dyn = UnivariateLinearDynamics(a, b)
