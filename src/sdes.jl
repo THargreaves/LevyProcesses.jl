@@ -50,10 +50,10 @@ function conditional_marginal(
 
     μ = exp(dyn, t) * x0
     Σ = zeros(length(x0), length(x0))
-    for (v, z) in zip(subordinator_path.jump_sizes, subordinator_path.jump_times)
+    for (v, z) in zip(subordinator_path.jump_times, subordinator_path.jump_sizes)
         ft = exp(dyn, (t - v)) * sde.noise_scaling
         μ += ft * μ_W * z
-        Σ += ft * ft' * σ_W^2 * z
+        Σ += ft * ft' * σ_W^2 * z^2
     end
     # HACK: Force to be PD
     Σ = (Σ + Σ') / 2 + 1e-6 * I
