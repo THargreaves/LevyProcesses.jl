@@ -1,61 +1,58 @@
 let
-    test_process = StableSubordinator(0.5, 0.1)
-    test_t = 0.8
-    test_ϵ = 1e-10
-    test_x = 1.2
+    α = 0.5
+    μ_W = 0.5
+    σ_W = 1.2
+    p = StableProcess(α, μ_W, σ_W)
+
+    test_t = 1.5
+    ϵ = 1e-8
+    test_x = 1.5
+    test_process = TruncatedLevyProcess(p; l=ϵ)
 
     @testset "Lévy tail mass" begin
-        @test levy_tail_mass(test_process, test_x) ≈ quadgk(Base.Fix1(levy_density, test_process), test_x, Inf)[1]
+        numerical = (
+            quadgk(x -> levy_density(p, x), -Inf, -test_x)[1] +
+            quadgk(x -> levy_density(p, x), test_x, Inf)[1]
+        )
+        @test levy_tail_mass(test_process, test_x) ≈ numerical
     end
 
-    @testset "Inverse Lévy tail mass" begin
-        Γ = levy_tail_mass(test_process, test_x)
-        @test inverse_levy_tail_mass(test_process, Γ) ≈ test_x
-    end
-
-    @testset "Inverse Lévy measure sampling" begin
-        p = TruncatedLevyProcess(test_process; l=test_ϵ)
+    @testset "Shot-noise sampling" begin
         REPS = 1000
         rng = MersenneTwister(1234)
 
         # Generate samples
         marginal_samples = [
-            sum(sample(rng, p, test_t, Inversion).jump_sizes)
+            sum(sample(rng, test_process, test_t).jump_sizes)
             for _ in 1:REPS
         ]
 
         # Compare with ground truth
-        test = ExactOneSampleKSTest(marginal_samples, marginal(p.process, test_t))
+        test = ExactOneSampleKSTest(marginal_samples, marginal(p, test_t))
         @test pvalue(test) > 0.1
     end
 
-    @testset "Small jump increments" begin
-        α = 0.5
-        # TODO: generalise to other values of C
-        C = α / gamma(1 - α)
-        t = 2.0
-
-        p = TruncatedLevyProcess(StableSubordinator(α, C); u=1.0)
+    @testset "SDE marginal" begin
+        a = -0.5
+        b = 0.0
         rng = MersenneTwister(1234)
 
-        # Simulate increment via jumps
-        n_approx = 1000
-        p_approx = TruncatedLevyProcess(StableSubordinator(α, C); u=1.0, l=1e-9)
-        approx_samples = [
-            sum(sample(rng, p_approx, t, Inversion).jump_sizes)
-            for _ in 1:n_approx
-        ]
+        dyn = UnivariateLinearDynamics(a, b)
+        true_sde = StableDrivenSDE(p, dyn)
+        truncated_sde = TruncatedStableDrivenSDE(test_process, dyn)
 
-        # Simulate increment exactly
-        n_exact = 1000
-        m = marginal(p, t)
-        exact_samples = [
-            sample(rng, m, HittingTime)
-            for _ in 1:n_exact
-        ]
+        test_x0 = 0.5
 
-        # Compare distributions
-        test = ApproximateTwoSampleKSTest(approx_samples, exact_samples)
+        # Generate samples
+        REPS = 1000
+        marginal_samples = Vector{Float64}(undef, REPS)
+        for i in 1:REPS
+            dist = sample_conditional_marginal(rng, truncated_sde, test_x0, test_t)
+            marginal_samples[i] = rand(dist)
+        end
+
+        # Compare with ground truth
+        test = ExactOneSampleKSTest(marginal_samples, marginal(true_sde, test_x0, test_t))
         @test pvalue(test) > 0.1
     end
 end

@@ -86,6 +86,7 @@ end
 
 # Process definitions
 include("processes/gamma.jl")
+include("processes/stable_subordinator.jl")
 include("processes/stable.jl")
 include("processes/nvm.jl")
 

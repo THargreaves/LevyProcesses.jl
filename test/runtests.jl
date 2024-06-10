@@ -12,6 +12,10 @@ using LevyProcesses
         include("processes/gamma.jl")
     end
 
+    @testset "Stable subordinator tests" begin
+        include("processes/stable_subordinator.jl")
+    end
+
     @testset "Stable process tests" begin
         include("processes/stable.jl")
     end
