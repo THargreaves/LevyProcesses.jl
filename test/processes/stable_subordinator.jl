@@ -32,15 +32,16 @@ let
     @testset "Small jump increments" begin
         α = 0.5
         # TODO: generalise to other values of C
-        C = α / gamma(1 - α)
+        C = α / gamma(1 - α) * 1.5
         t = 2.0
+        u = 1.2
 
-        p = TruncatedLevyProcess(StableSubordinator(α, C); u=1.0)
+        p = TruncatedLevyProcess(StableSubordinator(α, C); u=u)
         rng = MersenneTwister(1234)
 
         # Simulate increment via jumps
         n_approx = 1000
-        p_approx = TruncatedLevyProcess(StableSubordinator(α, C); u=1.0, l=1e-9)
+        p_approx = TruncatedLevyProcess(StableSubordinator(α, C); u=u, l=1e-9)
         approx_samples = [
             sum(sample(rng, p_approx, t, Inversion).jump_sizes)
             for _ in 1:n_approx

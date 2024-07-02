@@ -9,16 +9,20 @@ function sample(rng::AbstractRNG, m::TruncatedLevyProcessMarginal, ::HittingTime
     Z = 0.0
     S = 0.0
 
+    # TODO: this only holds for the stable subordinator
+    α = m.process.process.α
+    t = m.t * m.process.process.C / (α / gamma(1 - α))
+
     while true
         T, W = sample_hit(rng, m.process.process)
-        if S + T > m.t
+        if S + T > t
             break
         end
         S += T
         Z += m.process.upper + W
     end
 
-    ΔZ = sample_conditional(rng, m.process.process, m.t - S, m.process.upper)
+    ΔZ = sample_conditional(rng, m.process.process, t - S, m.process.upper)
     return Z + ΔZ
 end
 
