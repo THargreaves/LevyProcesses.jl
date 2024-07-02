@@ -25,10 +25,12 @@ end
 
 ### Constructors
 
+# TODO: would it be better to use `nothing` for no bounds so that we can dispatch on this?
 function TruncatedLevyProcess(p::LevyProcess, l::Float64, u::Float64)
     l < u || throw(ArgumentError("the lower bound must be less than the upper bound."))
     l >= 0 || throw(ArgumentError("the lower bound must be non-negative."))
     u > 0 || throw(ArgumentError("the upper bound must be positive."))
+    # TODO: need a fallback for these, and only run when required
     lower_tail_mass = levy_tail_mass(p, l)
     upper_tail_mass = levy_tail_mass(p, u)
     mass = lower_tail_mass - upper_tail_mass

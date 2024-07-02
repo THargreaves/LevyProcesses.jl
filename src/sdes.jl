@@ -73,7 +73,6 @@ end
 
 struct UnivariateLinearDynamics{T<:Real} <: LinearDynamics
     a::T
-    b::T
 end
 
 struct TruncatedStableDrivenSDE

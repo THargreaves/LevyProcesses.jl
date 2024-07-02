@@ -1,7 +1,7 @@
 import Distributions: Exponential, Normal
 import QuadGK: quadgk
 
-export StableProcess
+export StableProcess, TruncatedStableProcess, sample_shot_noise
 
 # TODO: add alternative constructor
 struct StableProcess <: ConditionallyGaussianLevyProcess
