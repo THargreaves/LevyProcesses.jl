@@ -4,7 +4,7 @@ import QuadGK: quadgk
 export StableProcess, TruncatedStableProcess, sample_shot_noise
 
 # TODO: add alternative constructor
-struct StableProcess <: ConditionallyGaussianLevyProcess
+struct StableProcess <: LevyProcess
     α::Float64
     μ_W::Float64
     σ_W::Float64

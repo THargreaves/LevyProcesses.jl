@@ -3,7 +3,7 @@ export GammaProcess
 import Distributions: Gamma
 import SpecialFunctions: expinti
 
-struct GammaProcess{T<:Real} <: Subordinator
+struct GammaProcess{T<:Real} <: LevyProcess
     γ::T
     λ::T
 end
@@ -52,7 +52,7 @@ const TruncatedGammaProcess{T<:Real} = TruncatedLevyProcess{GammaProcess{T}}
 #### Rejection Sampling ####
 
 # Dominating process used for rejection sampling
-struct GammaDominatingProcess{T<:Real} <: Subordinator
+struct GammaDominatingProcess{T<:Real} <: LevyProcess
     γ::T
     λ::T
 end

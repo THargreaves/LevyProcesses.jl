@@ -12,11 +12,7 @@ export marginal
 export sample
 
 abstract type LevyProcess end
-abstract type Subordinator <: LevyProcess end
-abstract type ConditionallyGaussianLevyProcess <: LevyProcess end
 
-domain(::LevyProcess) = -Inf, Inf
-domain(::Subordinator) = 0, Inf
 
 # Expected methods
 levy_density(p::LevyProcess, ::Real) = error("levy_density not implemented for $(typeof(p))")

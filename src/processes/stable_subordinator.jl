@@ -5,7 +5,7 @@ import StableDistributions: Stable
 export StableSubordinator
 
 # Equivalent to the stable process with β = 1.0 and 
-struct StableSubordinator{T<:Real} <: Subordinator
+struct StableSubordinator{T<:Real} <: LevyProcess
     α::T
     C::T
     # Cached constants
