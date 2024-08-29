@@ -16,7 +16,6 @@ abstract type LevyProcess end
 
 # Expected methods
 levy_density(p::LevyProcess, ::Real) = error("levy_density not implemented for $(typeof(p))")
-levy_drift(p::LevyProcess) = error("levy_drift not implemented for $(typeof(p))")
 inverse_levy_tail_mass(p::LevyProcess, ::Real) = error("inverse_levy_tail_mass not implemented for $(typeof(p))")
 
 # Default methods
@@ -24,6 +23,8 @@ function log_levy_density(p::LevyProcess, x::Real)
     @warn "log_levy_density not implemented for $(typeof(p)), using log(levy_density)"
     return log(levy_density(p, x))
 end
+levy_drift(p::LevyProcess) = 0.0
+levy_variance(p::LevyProcess) = 0.0
 
 include("truncate.jl")
 

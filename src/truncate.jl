@@ -18,6 +18,8 @@ struct TruncatedLevyProcess{P<:LevyProcess} <: LevyProcess
     upper::Float64                # upper bound on absolute jump size
 
     # Cached values
+    drift::Float64                # updated drift
+    variance::Float64             # updated variance
     lower_tail_mass::Float64      # upper tail mass of the lower bound
     upper_tail_mass::Float64      # upper tail mass of the upper bound
     mass::Float64                 # total mass between the bounds
@@ -26,7 +28,7 @@ end
 ### Constructors
 
 # TODO: would it be better to use `nothing` for no bounds so that we can dispatch on this?
-function TruncatedLevyProcess(p::LevyProcess, l::Float64, u::Float64)
+function TruncatedLevyProcess(p::LevyProcess, l::Float64, u::Float64; approximate_residual::Bool=false)
     l < u || throw(ArgumentError("the lower bound must be less than the upper bound."))
     l >= 0 || throw(ArgumentError("the lower bound must be non-negative."))
     u > 0 || throw(ArgumentError("the upper bound must be positive."))
@@ -34,7 +36,15 @@ function TruncatedLevyProcess(p::LevyProcess, l::Float64, u::Float64)
     lower_tail_mass = levy_tail_mass(p, l)
     upper_tail_mass = levy_tail_mass(p, u)
     mass = lower_tail_mass - upper_tail_mass
-    return TruncatedLevyProcess(p, l, u, lower_tail_mass, upper_tail_mass, mass)
+    # Update drift and variance
+    drift = levy_drift(p)
+    variance = levy_variance(p)
+    if approximate_residual
+        residual_process = TruncatedLevyProcess(p, 0.0, l)
+        drift += mean(residual_process)
+        variance += var(residual_process)
+    end
+    return TruncatedLevyProcess(p, l, u, drift, variance, lower_tail_mass, upper_tail_mass, mass)
 end
 
 TruncatedLevyProcess(p::LevyProcess, l::Real, u::Real) = TruncatedLevyProcess(p, Float64(l), Float64(u))
@@ -45,6 +55,9 @@ islowerbounded(p::TruncatedLevyProcess) = islowerbounded(p.process) || p.lower >
 isupperbounded(p::TruncatedLevyProcess) = isupperbounded(p.process) || p.upper < Inf
 
 ### Evalutation
+
+levy_drift(p::TruncatedLevyProcess) = p.drift
+levy_variance(p::TruncatedLevyProcess) = p.dispersion
 
 function levy_density(p::TruncatedLevyProcess, x::T) where {T<:Real}
     p.lower <= x <= p.upper ? levy_density(p.process, x) : zero(T)
