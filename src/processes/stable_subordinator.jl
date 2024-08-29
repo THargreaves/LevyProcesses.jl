@@ -44,3 +44,7 @@ inverse_levy_tail_mass(p::StableSubordinator, Γ::Real) = (p.α * Γ / p.C)^(-1 
 function marginal(p::StableSubordinator, t::Real)
     return Stable(p.α, 1.0, p.σ * t^(1 / p.α), 0.0)
 end
+
+function sample(rng::AbstractRNG, p::TruncatedLevyProcess{StableSubordinator{T}}, dt::T) where {T}
+    return sample(rng, p, dt, Inversion)
+end
