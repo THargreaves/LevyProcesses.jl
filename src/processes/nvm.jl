@@ -6,7 +6,7 @@ export NormalVarianceMeanProcess, VarianceGammaProcess
 
 # HACK: should inherit from Subordinator, but a truncated subordinator does not know that
 # it is a subordinator
-struct NormalVarianceMeanProcess{P<:LevyProcess,T<:Real}
+struct NormalVarianceMeanProcess{P<:LevyProcess,T<:Real} <: LevyProcess
     subordinator::P
     μ::T
     σ::T
