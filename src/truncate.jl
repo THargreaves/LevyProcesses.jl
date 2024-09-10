@@ -87,3 +87,21 @@ end
 function marginal(p::TruncatedLevyProcess, t::Real)
     TruncatedLevyProcessMarginal(p, t)
 end
+
+"""
+    FixedLevyProcess(p, N)
+
+Approximation of a Lévy process by fixing the number of jumps.
+
+# Arguments
+- `p::LevyProcess`: The original Lévy process
+- `N::Int`: The fixed number of jumps
+"""
+
+export FixedLevyProcess
+
+# TODO: is this even a Lévy process anymore?
+struct FixedLevyProcess{P<:LevyProcess} <: LevyProcess
+    process::P
+    N::Int
+end

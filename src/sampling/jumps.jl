@@ -56,15 +56,16 @@ end
 #### GPU-ACCELERATED SAMPLING ####
 ##################################
 
-struct BatchSampleJumps
+struct BatchInversionMethod <: LevySamplingMethod end
+const BatchInversion = BatchInversionMethod()
+
+struct RaggedBatchSampleJumps
     jump_sizes::CuArray{Float32,1}
     jump_times::CuArray{Float32,1}
     offsets::CuArray{Int32,1}
     tot_N::Int
 end
 
-struct BatchInversionMethod <: LevySamplingMethod end
-const BatchInversion = BatchInversionMethod()
 
 function sample(p::TruncatedLevyProcess, dt::Real, N::Integer, ::BatchInversionMethod)
     Ns = CUDA.rand_poisson(UInt32, N; lambda=dt * p.mass)
@@ -73,5 +74,20 @@ function sample(p::TruncatedLevyProcess, dt::Real, N::Integer, ::BatchInversionM
     Γs = CUDA.rand(tot_N) * (p.upper_tail_mass - p.lower_tail_mass) .+ p.lower_tail_mass
     jump_sizes = inverse_levy_tail_mass.(Ref(p.process), Γs)
     jump_times = dt * CUDA.rand(tot_N)
-    return BatchSampleJumps(jump_sizes, jump_times, offsets, tot_N)
+    return RaggedBatchSampleJumps(jump_sizes, jump_times, offsets, tot_N)
+end
+
+struct RegularBatchSampleJumps
+    jump_sizes::CuArray{Float32,2}
+    jump_times::CuArray{Float32,2}
+    N::Int
+end
+
+function sample(p::FixedLevyProcess, dt::Real, N::Integer, ::BatchInversionMethod)
+    Us = CUDA.rand(p.N, N)
+    Es = -log.(Us) ./ dt
+    Γs = cumsum(Es, dims=1)
+    jump_sizes = inverse_levy_tail_mass.(Ref(p.process), Γs)
+    jump_times = dt * CUDA.rand(p.N, N)
+    return RegularBatchSampleJumps(jump_sizes, jump_times, N)
 end
