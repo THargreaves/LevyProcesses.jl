@@ -1,8 +1,10 @@
 abstract type LevySamplingMethod end
 
+import CUDA
+import CUDA: CuArray
 import Distributions: Poisson, Uniform
 
-export Inversion, Rejection
+export Inversion, Rejection, BatchInversion
 
 # Expected methods
 function sample(p::LevyProcess, dt::Real)
@@ -48,4 +50,28 @@ function sample(
         dominating_jumps.jump_times[keep],
         dominating_jumps.jump_sizes[keep]
     )
+end
+
+##################################
+#### GPU-ACCELERATED SAMPLING ####
+##################################
+
+struct BatchSampleJumps
+    jump_sizes::CuArray{Float32,1}
+    jump_times::CuArray{Float32,1}
+    offsets::CuArray{Int32,1}
+    tot_N::Int
+end
+
+struct BatchInversionMethod <: LevySamplingMethod end
+const BatchInversion = BatchInversionMethod()
+
+function sample(p::TruncatedLevyProcess, dt::Real, N::Integer, ::BatchInversionMethod)
+    Ns = CUDA.rand_poisson(UInt32, N; lambda=dt * p.mass)
+    offsets = cumsum(Ns)
+    tot_N = sum(Ns)
+    Γs = CUDA.rand(tot_N) * (p.upper_tail_mass - p.lower_tail_mass) .+ p.lower_tail_mass
+    jump_sizes = inverse_levy_tail_mass.(Ref(p.process), Γs)
+    jump_times = dt * CUDA.rand(tot_N)
+    return BatchSampleJumps(jump_sizes, jump_times, offsets, tot_N)
 end
