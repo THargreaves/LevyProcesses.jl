@@ -50,28 +50,23 @@ end
 const TruncatedVarianceGammaProcess{T<:AbstractFloat} = TruncatedLevyProcess{VarianceGammaProcess{T}}
 
 struct VarianceGammaMarginal{T<:Real} <: ContinuousUnivariateDistribution
-    μ::T
-    σ::T
-    γ::T
+    α::T
+    β::T
     λ::T
-    t::T
-    # Cached values
-    κ::T
-    A::T
-    B::T
-    C::T
+    # Cached parameters
+    γ::T
 end
 
 function VarianceGammaMarginal(μ::T, σ::T, γ::T, λ::T, t::T) where {T<:Real}
     # Scale subordinator to have unit mean
     κ = 1 / λ
-    # Compute constants
-    A = μ / σ^2
-    B = sqrt(μ^2 + 2σ^2 / κ) / σ^2
-    # NOTE: the normalising constant given in Cont and Tankov (2004) is incorrect and the
-    # resulting density does not integrate to unity.
-    C = sqrt(2 / (π * σ^2)) * (μ^2 + 2σ^2 / κ)^(1 / 4 - t / 2κ) / gamma(t / κ)
-    return VarianceGammaMarginal(μ, σ, γ, λ, t, κ, A, B, C)
+    t *= γ / λ
+    # Variance-gamma distribution parameters
+    α = sqrt(μ^2 + 2σ^2 / κ) / σ^2
+    β = μ / σ^2
+    λ = t / κ
+    γ = sqrt(α^2 - β^2)
+    return VarianceGammaMarginal(α, β, λ, γ)
 end
 
 function sample(rng::AbstractRNG, p::TruncatedVarianceGammaProcess{T}, dt::T) where {T<:AbstractFloat}
@@ -93,19 +88,17 @@ function sample(rng::AbstractRNG, p::TruncatedVarianceGammaProcess{T}, dt::T) wh
 end
 
 function pdf(d::VarianceGammaMarginal, x::Real)
-    t, μ, σ, γ, λ, κ, A, B, C = d.t, d.μ, d.σ, d.γ, d.λ, d.κ, d.A, d.B, d.C
-    v = t / κ - 1 / 2
-    # Large-negative asymptotic expansion
-    # TODO: calculate an exact cutoff
-    # if x > 100.0
-    #     # return C * (exp((-A + B) * x) * sqrt(π / 2B) * (-x)^(-0.5 + v))
-    #     return 0.0
-    # end
-    # HACK: implement a rigorous asymptotic expansion
-    cutoff = 1e-5
-    bessel_arg = abs(x) < cutoff ? cutoff : abs(x)
-    bessel_term = bessel_arg^v * besselk(v, B * bessel_arg)
-    return C * exp(A * x) * bessel_term
+    α, β, γ, λ = d.α, d.β, d.γ, d.λ
+    if x > 100
+        return 0.0
+    end
+    if abs(x) < 1e-10
+        x = 1e-10
+    end
+    return (
+        γ^(2λ) * abs(x)^(λ - 0.5) * besselk(λ - 0.5, α * abs(x)) * exp(β * x) /
+        (sqrt(π) * gamma(λ) * (2α)^(λ - 0.5))
+    )
 end
 
 function cdf(d::VarianceGammaMarginal, x::Real)
