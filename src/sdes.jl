@@ -1,4 +1,6 @@
 import Distributions: MvNormal, Normal
+using CUDA
+using NNlib
 
 export LinearDynamics, LangevinDynamics
 export LevyDrivenLinearSDE
@@ -18,6 +20,16 @@ function Base.exp(dyn::LangevinDynamics, dt::Real)
     θ = dyn.θ
     exp_val = exp(θ * dt)
     return [1.0 (exp_val-1)/θ; 0 exp_val]
+end
+
+function compute_expAs(dyn::LangevinDynamics, dt::CuVector{T}) where {T<:Number}
+    expAs = CuArray{T}(undef, 2, 2, length(dt))
+    exp_vals = exp.(dyn.θ * dt)
+    expAs[1, 1, :] .= 1.0
+    expAs[1, 2, :] .= (exp_vals .- 1.0) ./ dyn.θ
+    expAs[2, 1, :] .= 0.0
+    expAs[2, 2, :] .= exp_vals
+    return expAs
 end
 
 struct LevyDrivenLinearSDE{P<:LevyProcess,D<:LinearDynamics,T<:Real}
@@ -59,12 +71,70 @@ function conditional_marginal(
     for (v, z) in zip(subordinator_path.jump_times, subordinator_path.jump_sizes)
         ft = exp(dyn, (t - v)) * sde.noise_scaling
         μ += ft * μ_W * z
+        # TODO: think this should be just z for the NVM case (z^2 for NσM, e.g. stable)
         Σ += ft * ft' * σ_W^2 * z^2
     end
     # HACK: Force to be PD
     Σ = (Σ + Σ') / 2 + 1e-5 * I
 
     return MvNormal(μ, Σ)
+end
+
+function sum_blocks!(μs, Σs, μ, Σ, offsets, num_runs_ref)
+    index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+    stride = blockDim().x * gridDim().x
+    K = num_runs_ref[]
+    for i = index:stride:K
+        start = i == 1 ? 1 : offsets[i-1] + 1
+        finish = offsets[i]
+        for j in start:finish
+            @inbounds μ[1, i] += μs[1, j]
+            @inbounds μ[2, i] += μs[2, j]
+            @inbounds Σ[1, 1, i] += Σs[1, 1, j]
+            @inbounds Σ[1, 2, i] += Σs[1, 2, j]
+            @inbounds Σ[2, 2, i] += Σs[2, 2, j]
+        end
+        # Use symmetry to fill in remainder
+        @inbounds Σ[2, 1, i] = Σ[1, 2, i]
+    end
+end
+
+export conditional_marginal_parameters
+
+function conditional_marginal_parameters(
+    subordinator_paths::RaggedBatchSampleJumps,
+    sde::NVMDrivenSDE,
+    t::Real
+)
+    dyn = sde.linear_dynamics
+    μ_W, σ_W = sde.driving_process.μ, sde.driving_process.σ
+
+    expAs = compute_expAs(dyn, t .- subordinator_paths.jump_times)
+    expA_h = NNlib.batched_vec(expAs, cu(sde.noise_scaling))
+    μs = μ_W * expA_h .* subordinator_paths.jump_sizes'
+    Σs = (
+        σ_W^2.0f0 *
+        NNlib.batched_mul(
+            reshape(expA_h, 2, 1, subordinator_paths.tot_N),
+            reshape(expA_h, 1, 2, subordinator_paths.tot_N)
+        ) .*
+        reshape((subordinator_paths.jump_sizes .^ 2.0f0), 1, 1, subordinator_paths.tot_N)
+    )
+
+    N = length(subordinator_paths.offsets)
+    num_runs_ref = CuArray([N])
+    μ = CUDA.zeros(2, N)
+    Σ = CUDA.zeros(2, 2, N)
+    # Force types
+    # TODO: avoid this by making code type-stable
+    μs = convert.(Float32, μs)
+    Σs = convert.(Float32, Σs)
+    num_runs_ref = convert.(Int32, num_runs_ref)
+    CUDA.@cuda threads = 256 blocks = 4096 sum_blocks!(
+        μs, Σs, μ, Σ, subordinator_paths.offsets, num_runs_ref
+    )
+
+    return μ, Σ
 end
 
 ############################
