@@ -14,6 +14,11 @@ end
 
 const VarianceGammaProcess{T<:AbstractFloat} = NormalVarianceMeanProcess{GammaProcess{T},T}
 
+# HACK: temporary fix whilst tail mass is mandatory
+function levy_tail_mass(p::VarianceGammaProcess{T}, x::T) where {T<:AbstractFloat}
+    return 0.0
+end
+
 ################################################
 #### TRUNCATED NORMAL VARIANCE MEAN PROCESS ####
 ################################################
@@ -58,12 +63,14 @@ struct VarianceGammaMarginal{T<:Real} <: ContinuousUnivariateDistribution
 end
 
 function VarianceGammaMarginal(μ::T, σ::T, γ::T, λ::T, t::T) where {T<:Real}
-    κ = 1 / γ
+    # Scale subordinator to have unit mean
+    κ = 1 / λ
+    # Compute constants
     A = μ / σ^2
     B = sqrt(μ^2 + 2σ^2 / κ) / σ^2
-    C = sqrt(σ^2 * κ / 2π) * (
-        (μ^2 * κ + 2σ^2)^(1 / 4 - μ / 2κ)
-    ) / gamma(t / κ)
+    # NOTE: the normalising constant given in Cont and Tankov (2004) is incorrect and the
+    # resulting density does not integrate to unity.
+    C = sqrt(2 / (π * σ^2)) * (μ^2 + 2σ^2 / κ)^(1 / 4 - t / 2κ) / gamma(t / κ)
     return VarianceGammaMarginal(μ, σ, γ, λ, t, κ, A, B, C)
 end
 
@@ -87,15 +94,22 @@ end
 
 function pdf(d::VarianceGammaMarginal, x::Real)
     t, μ, σ, γ, λ, κ, A, B, C = d.t, d.μ, d.σ, d.γ, d.λ, d.κ, d.A, d.B, d.C
-    σ2 = σ^2
-    θ = μ
-    correction = 1 / 2 * σ2 * (θ^2 + 2σ2 / κ)^(-θ / 2κ + t / 2κ) * κ^(3 / 4 - θ / 2κ + t / κ)
-    return C * abs(x)^(t / κ - 1 / 2) * exp(-A * x) * besselk(t / κ - 1 / 2, B * abs(x)) / correction
+    v = t / κ - 1 / 2
+    # Large-negative asymptotic expansion
+    # TODO: calculate an exact cutoff
+    # if x > 100.0
+    #     # return C * (exp((-A + B) * x) * sqrt(π / 2B) * (-x)^(-0.5 + v))
+    #     return 0.0
+    # end
+    # HACK: implement a rigorous asymptotic expansion
+    cutoff = 1e-5
+    bessel_arg = abs(x) < cutoff ? cutoff : abs(x)
+    bessel_term = bessel_arg^v * besselk(v, B * bessel_arg)
+    return C * exp(A * x) * bessel_term
 end
 
 function cdf(d::VarianceGammaMarginal, x::Real)
-    t, μ, σ, γ, λ, κ, A, B, C = d.t, d.μ, d.σ, d.γ, d.λ, d.κ, d.A, d.B, d.C
-    return C * quadgk(Base.Fix1(pdf, d), 0, x)[1]
+    return quadgk(x -> pdf(d, x), -Inf, x)[1]
 end
 
 function marginal(p::VarianceGammaProcess{T}, t::Real) where {T<:AbstractFloat}
