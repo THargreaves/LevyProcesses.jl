@@ -70,13 +70,16 @@ function VarianceGammaMarginal(μ::T, σ::T, γ::T, λ::T, t::T) where {T<:Real}
 end
 
 function sample(rng::AbstractRNG, p::TruncatedVarianceGammaProcess{T}, dt::T) where {T<:AbstractFloat}
-    κ = 1 / p.process.subordinator.γ
-    shared_term = 0.5 * sqrt(p.process.μ^2 + 2p.process.σ^2 / κ)
-    γ_pos = shared_term + p.process.μ / 2
-    γ_neg = shared_term - p.process.μ / 2
+    # Scale subordinator to have unit mean
+    κ = 1 / p.process.subordinator.λ
+    dt *= p.process.subordinator.γ / p.process.subordinator.λ
 
-    positive_process = TruncatedLevyProcess(GammaProcess(γ_pos, γ_pos^2 * κ), p.lower, p.upper)
-    negative_process = TruncatedLevyProcess(GammaProcess(γ_neg, γ_neg^2 * κ), p.lower, p.upper)
+    # TODO: avoid recomputing these for every sample
+    A = p.process.μ / p.process.σ^2
+    B = sqrt(p.process.μ^2 + 2p.process.σ^2 / κ) / p.process.σ^2
+
+    positive_process = TruncatedLevyProcess(GammaProcess(1 / κ, B - A), p.lower, p.upper)
+    negative_process = TruncatedLevyProcess(GammaProcess(1 / κ, A + B), p.lower, p.upper)
 
     positive_jumps = sample(rng, positive_process, dt)
     negative_jumps = sample(rng, negative_process, dt)
@@ -89,6 +92,7 @@ end
 
 function pdf(d::VarianceGammaMarginal, x::Real)
     α, β, γ, λ = d.α, d.β, d.γ, d.λ
+    # HACK: replace with proper asymptotic expansions
     if x > 100
         return 0.0
     end
