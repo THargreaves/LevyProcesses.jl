@@ -4,17 +4,17 @@ import QuadGK: quadgk
 export StableProcess, TruncatedStableProcess, sample_shot_noise
 
 # TODO: add alternative constructor
-struct StableProcess <: LevyProcess
-    α::Float64
-    μ_W::Float64
-    σ_W::Float64
+struct StableProcess{T<:Real} <: LevyProcess{T}
+    α::T
+    μ_W::T
+    σ_W::T
     # Canonical parameterisation
-    β::Float64
-    σ::Float64
+    β::T
+    σ::T
     # Cached values
-    C_α::Float64
+    C_α::T
 end
-function StableProcess(α::Float64, μ_W::Float64, σ_W::Float64)
+function StableProcess(α::Real, μ_W::Real, σ_W::Real)
     α_moment = quadgk(x -> pdf(Normal(μ_W, σ_W), x) * abs(x)^α, -Inf, Inf)[1]
     α_sgn_moment = quadgk(x -> pdf(Normal(μ_W, σ_W), x) * abs(x)^α * sign(x), -Inf, Inf)[1]
     C_α = (1 - α) / (gamma(2 - α) * cos(π * α / 2))
@@ -39,7 +39,7 @@ function marginal(p::StableProcess, t::Real)
     return Stable(p.α, p.β, p.σ * t^(1 / p.α), 0.0)
 end
 
-const TruncatedStableProcess = TruncatedLevyProcess{StableProcess}
+const TruncatedStableProcess{T} = TruncatedLevyProcess{T,StableProcess{T}}
 
 function sample_shot_noise(rng::AbstractRNG, p::TruncatedStableProcess, dt::Real)
     jump_sizes = Float64[]

@@ -12,23 +12,23 @@ Construct a trunctated Lévy process by restricting the absolute size of jumps.
 
 export TruncatedLevyProcess
 
-struct TruncatedLevyProcess{P<:LevyProcess} <: LevyProcess
+struct TruncatedLevyProcess{T<:Real,P<:LevyProcess{T}} <: LevyProcess{T}
     process::P                    # the original process (untruncated)
-    lower::Float64                # lower bound on absolute jump size
-    upper::Float64                # upper bound on absolute jump size
+    lower::T                      # lower bound on absolute jump size
+    upper::T                      # upper bound on absolute jump size
 
     # Cached values
-    drift::Float64                # updated drift
-    variance::Float64             # updated variance
-    lower_tail_mass::Float64      # upper tail mass of the lower bound
-    upper_tail_mass::Float64      # upper tail mass of the upper bound
-    mass::Float64                 # total mass between the bounds
+    drift::T                      # updated drift
+    variance::T                   # updated variance
+    lower_tail_mass::T            # upper tail mass of the lower bound
+    upper_tail_mass::T            # upper tail mass of the upper bound
+    mass::T                       # total mass between the bounds
 end
 
 ### Constructors
 
 # TODO: would it be better to use `nothing` for no bounds so that we can dispatch on this?
-function TruncatedLevyProcess(p::LevyProcess, l::Float64, u::Float64; approximate_residual::Bool=false)
+function TruncatedLevyProcess(p::LevyProcess, l::Real, u::Real; approximate_residual::Bool=false)
     l < u || throw(ArgumentError("the lower bound must be less than the upper bound."))
     l >= 0 || throw(ArgumentError("the lower bound must be non-negative."))
     u > 0 || throw(ArgumentError("the upper bound must be positive."))
@@ -47,8 +47,8 @@ function TruncatedLevyProcess(p::LevyProcess, l::Float64, u::Float64; approximat
     return TruncatedLevyProcess(p, l, u, drift, variance, lower_tail_mass, upper_tail_mass, mass)
 end
 
-TruncatedLevyProcess(p::LevyProcess, l::Real, u::Real) = TruncatedLevyProcess(p, Float64(l), Float64(u))
-TruncatedLevyProcess(p::LevyProcess; l=0.0, u=Inf) = TruncatedLevyProcess(p, l, u)
+# TruncatedLevyProcess(p::LevyProcess, l::Real, u::Real) = TruncatedLevyProcess(p, Float64(l), Float64(u))
+TruncatedLevyProcess(p::LevyProcess{T}; l=0.0, u=Inf) where {T} = TruncatedLevyProcess(p, T(l), T(u))
 
 ### Support
 islowerbounded(p::TruncatedLevyProcess) = islowerbounded(p.process) || p.lower > 0
@@ -101,7 +101,7 @@ Approximation of a Lévy process by fixing the number of jumps.
 export FixedLevyProcess
 
 # TODO: is this even a Lévy process anymore?
-struct FixedLevyProcess{P<:LevyProcess} <: LevyProcess
+struct FixedLevyProcess{T<:Real,P<:LevyProcess{T}} <: LevyProcess{T}
     process::P
     N::Int
 end

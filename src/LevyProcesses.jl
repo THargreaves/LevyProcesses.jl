@@ -11,20 +11,20 @@ export marginal
 
 export sample
 
-abstract type LevyProcess end
+abstract type LevyProcess{T} end
 
 
 # Expected methods
 levy_density(p::LevyProcess, ::Real) = error("levy_density not implemented for $(typeof(p))")
-inverse_levy_tail_mass(p::LevyProcess, ::Real) = error("inverse_levy_tail_mass not implemented for $(typeof(p))")
+inverse_levy_tail_mass(p::LevyProcess{T}, ::T) where {T<:Real} = error("inverse_levy_tail_mass not implemented for $(typeof(p))")
 
 # Default methods
 function log_levy_density(p::LevyProcess, x::Real)
     @warn "log_levy_density not implemented for $(typeof(p)), using log(levy_density)"
     return log(levy_density(p, x))
 end
-levy_drift(p::LevyProcess) = 0.0
-levy_variance(p::LevyProcess) = 0.0
+levy_drift(p::LevyProcess{T}) where {T} = zero(T)
+levy_variance(p::LevyProcess{T}) where {T} = zero(T)
 
 include("truncate.jl")
 

@@ -24,10 +24,10 @@ end
 
 function compute_expAs(dyn::LangevinDynamics, dt::CuVector{T}) where {T<:Number}
     expAs = CuArray{T}(undef, 2, 2, length(dt))
-    exp_vals = exp.(dyn.θ * dt)
-    expAs[1, 1, :] .= 1.0
-    expAs[1, 2, :] .= (exp_vals .- 1.0) ./ dyn.θ
-    expAs[2, 1, :] .= 0.0
+    exp_vals = exp.(T(dyn.θ) * dt)
+    expAs[1, 1, :] .= T(1.0)
+    expAs[1, 2, :] .= (exp_vals .- T(1.0)) ./ dyn.θ
+    expAs[2, 1, :] .= T(0.0)
     expAs[2, 2, :] .= exp_vals
     return expAs
 end
@@ -113,28 +113,54 @@ function conditional_marginal_parameters(
     expA_h = NNlib.batched_vec(expAs, cu(sde.noise_scaling))
     μs = μ_W * expA_h .* subordinator_paths.jump_sizes'
     Σs = (
-        σ_W^2.0f0 *
+        σ_W^2 *
         NNlib.batched_mul(
             reshape(expA_h, 2, 1, subordinator_paths.tot_N),
             reshape(expA_h, 1, 2, subordinator_paths.tot_N)
         ) .*
-        reshape((subordinator_paths.jump_sizes .^ 2.0f0), 1, 1, subordinator_paths.tot_N)
+        reshape((subordinator_paths.jump_sizes .^ 2), 1, 1, subordinator_paths.tot_N)
     )
 
     N = length(subordinator_paths.offsets)
     num_runs_ref = CuArray([N])
     μ = CUDA.zeros(2, N)
     Σ = CUDA.zeros(2, 2, N)
-    # Force types
-    # TODO: avoid this by making code type-stable
-    μs = convert.(Float32, μs)
-    Σs = convert.(Float32, Σs)
     num_runs_ref = convert.(Int32, num_runs_ref)
     CUDA.@cuda threads = 256 blocks = 4096 sum_blocks!(
         μs, Σs, μ, Σ, subordinator_paths.offsets, num_runs_ref
     )
 
     return μ, Σ
+end
+
+function unscaled_conditional_marginal_parameters(
+    subordinator_paths::RaggedBatchSampleJumps,
+    sde::NVMDrivenSDE,
+    t::Real
+)
+    dyn = sde.linear_dynamics
+
+    expAs = compute_expAs(dyn, t .- subordinator_paths.jump_times)
+    expA_h = NNlib.batched_vec(expAs, cu(sde.noise_scaling))
+    ms = expA_h .* subordinator_paths.jump_sizes'
+    Ss = (
+        NNlib.batched_mul(
+            reshape(expA_h, 2, 1, subordinator_paths.tot_N),
+            reshape(expA_h, 1, 2, subordinator_paths.tot_N)
+        ) .*
+        reshape((subordinator_paths.jump_sizes .^ 2), 1, 1, subordinator_paths.tot_N)
+    )
+
+    N = length(subordinator_paths.offsets)
+    num_runs_ref = CuArray([N])
+    m = CUDA.zeros(2, N)
+    S = CUDA.zeros(2, 2, N)
+    num_runs_ref = convert.(Int32, num_runs_ref)
+    CUDA.@cuda threads = 256 blocks = 4096 sum_blocks!(
+        ms, Ss, m, S, subordinator_paths.offsets, num_runs_ref
+    )
+
+    return m, S
 end
 
 ############################
