@@ -1,7 +1,7 @@
 import Distributions: Exponential, Normal
 import QuadGK: quadgk
 
-export StableProcess, TruncatedStableProcess, sample_shot_noise
+export StableProcess, TruncatedStableProcess, sample_shot_noise, sample_marginalised
 
 # TODO: add alternative constructor
 struct StableProcess{T<:Real} <: LevyProcess{T}
@@ -70,10 +70,10 @@ function sample(rng::AbstractRNG, p::TruncatedStableProcess, dt::Real)
 end
 
 function sample_marginalised(rng::AbstractRNG, p::TruncatedStableProcess, dt::Real)
-    show_noise_path = sample_shot_noise(rng, p, dt)
+    shot_noise_path = sample_shot_noise(rng, p, dt)
 
-    jump_means = show_noise_path.jump_sizes .* p.process.μ_W
-    jump_variances = (show_noise_path.jump_sizes .* process.σ_W) .^ 2
+    jump_means = shot_noise_path.jump_sizes .* p.process.μ_W
+    jump_variances = (shot_noise_path.jump_sizes .* p.process.σ_W) .^ 2
 
     return MarginalisedSampleJumps(shot_noise_path.jump_times, jump_means, jump_variances)
 end
