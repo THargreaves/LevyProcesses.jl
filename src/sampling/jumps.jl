@@ -61,9 +61,9 @@ end
 struct BatchInversionMethod <: LevySamplingMethod end
 const BatchInversion = BatchInversionMethod()
 
-struct RaggedBatchSampleJumps
-    jump_sizes::CuArray{Float32,1}
-    jump_times::CuArray{Float32,1}
+struct RaggedBatchSampleJumps{T<:Real}
+    jump_sizes::CuArray{T,1}
+    jump_times::CuArray{T,1}
     offsets::CuArray{Int32,1}
     tot_N::Int
 end
@@ -117,9 +117,9 @@ function sample(
     )
 end
 
-struct RegularBatchSampleJumps
-    jump_sizes::CuArray{Float32,2}
-    jump_times::CuArray{Float32,2}
+struct RegularBatchSampleJumps{T<:Real}
+    jump_sizes::CuArray{T,2}
+    jump_times::CuArray{T,2}
     N::Int
 end
 
