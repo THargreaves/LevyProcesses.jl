@@ -19,7 +19,7 @@ end
 function Base.exp(dyn::LangevinDynamics, dt::Real)
     θ = dyn.θ
     exp_val = exp(θ * dt)
-    return [1.0 (exp_val-1)/θ; 0 exp_val]
+    return StaticArrays.@SMatrix [1.0 (exp_val-1)/θ; 0 exp_val]
 end
 
 function compute_expAs(dyn::LangevinDynamics, dt::CuVector{T}) where {T<:Number}
@@ -32,11 +32,10 @@ function compute_expAs(dyn::LangevinDynamics, dt::CuVector{T}) where {T<:Number}
     return expAs
 end
 
-struct LevyDrivenLinearSDE{P<:LevyProcess,D<:LinearDynamics,T<:Real}
+struct LevyDrivenLinearSDE{P<:LevyProcess,D<:LinearDynamics,V<:AbstractVector}
     driving_process::P
     linear_dynamics::D
-    # TODO: should this be a method to allow LangevinDynamics to be parameterised?
-    noise_scaling::Vector{T}
+    noise_scaling::V
 end
 
 #########################

@@ -4,6 +4,7 @@ import QuadGK: quadgk
 import Random: AbstractRNG, default_rng
 import SpecialFunctions
 import StatsBase: sample
+import StaticArrays
 
 export LevyProcess, Subordinator, TruncatedLevyProcess, TruncatedSubordinator, SampleJumps
 export levy_density, log_levy_density, levy_drift, levy_tail_mass, inverse_levy_tail_mass
