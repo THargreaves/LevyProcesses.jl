@@ -1,7 +1,7 @@
 name = "LevyProcesses"
 uuid = "c545b0d6-e5a5-4c08-a7b6-06dfe4503686"
-authors = ["THargreaves <tim.hargreaves@icloud.com>"]
 version = "0.1.0"
+authors = ["THargreaves <tim.hargreaves@icloud.com>"]
 
 [deps]
 AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
@@ -21,5 +21,19 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
 AcceleratedKernels = "0.3.0"
+HypothesisTests = "0.11.5"
+QuadGK = "2.11.2"
+Random = "1.11.0"
+SpecialFunctions = "2.6.1"
 StaticArrays = "1.9.13"
 Statistics = "1.11.1"
+Test = "1.11.0"
+TestItems = "1.0.0"
+
+[extras]
+HypothesisTests = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
+
+[targets]
+test = ["HypothesisTests", "Test", "TestItems"]
