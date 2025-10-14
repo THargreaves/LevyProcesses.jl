@@ -8,7 +8,7 @@ export Inversion, Rejection, BatchInversion, BatchRejection
 
 # Expected methods
 function sample(p::LevyProcess, dt::Real)
-    error("no default sampling procedure defined for $(typeof(p))")
+    return error("no default sampling procedure defined for $(typeof(p))")
 end
 
 # """Method A of Rosiński, 2001"""
@@ -20,11 +20,17 @@ function sample(
     rng::AbstractRNG, p::TruncatedLevyProcess{T}, dt::Real, ::InversionMethod
 ) where {T}
     N = rand(rng, Poisson(dt * p.mass))
-    Γs = rand(rng, T, N) * (p.upper_tail_mass - p.lower_tail_mass) .+ p.lower_tail_mass
+
+    # Sample jump sizes
+    Γs = rand(rng, T, N)
+    Γs .*= p.upper_tail_mass - p.lower_tail_mass
+    Γs .+= p.lower_tail_mass
     jump_sizes = inverse_levy_tail_mass.(Ref(p.process), Γs)
-    # WILL: why no type parameter?
-    # https://github.com/JuliaStats/Distributions.jl/blob/b219803a0d03a7c75d7aef7c0bab6cd0d79997dc/src/univariate/continuous/uniform.jl#L154C1-L154C67
-    jump_times = rand(rng, T, N) * dt
+
+    # Sample jump times
+    jump_times = rand(rng, T, N)
+    jump_times .*= dt
+
     return SampleJumps(jump_times, jump_sizes)
 end
 
