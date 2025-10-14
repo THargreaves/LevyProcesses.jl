@@ -18,27 +18,6 @@ end
 # Simulation of Lévy Random Fields, Wolpert and Ickstadt, 1998
 levy_tail_mass(p::GammaProcess, x::Real) = -p.γ * expinti(-x * p.λ)
 
-# Computed using Halley iterations
-# TODO: for C = 2.1, β = 0.5, c = 5.5, this is returning negative values
-function inverse_levy_tail_mass(p::GammaProcess{T}, Γ::T; tol=1e-9, max_iter=100) where {T}
-    # Initial guess from approximation E1(x) ≈ -γ - log(x)
-    x = exp(-Γ / p.λ - T(MathConstants.eulergamma)) / p.λ
-    for _ in 1:max_iter
-        f = levy_tail_mass(p, x) - Γ
-        f_prime = -p.γ * exp(-p.λ * x) / x
-        c1 = f / f_prime
-        # c2 = f''(x) / f'(x)
-        c2 = -(T(1.0) + x * p.λ) / x
-
-        Δ = c1 / (T(1.0) - T(0.5) * c1 * c2)
-        x -= Δ
-        if abs(Δ) < T(tol)
-            return x
-        end
-    end
-    return x
-end
-
 function marginal(p::GammaProcess, t::Real)
     return Gamma(p.γ * t, 1 / p.λ)
 end
