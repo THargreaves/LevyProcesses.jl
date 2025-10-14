@@ -2,10 +2,10 @@ let
     test_t = 0.8
     test_ϵ = 1e-10
 
-    γ = 1.0
-    λ = 1.0
-    μ_W = 0.0
-    σ_W = 1.0
+    γ = 1.3
+    λ = 10.8
+    μ_W = 1.4
+    σ_W = 1.5
 
     test_subordinator = GammaProcess(γ, λ)
     test_truncated_subordinator = TruncatedLevyProcess(test_subordinator; l=1e-10)

@@ -2,6 +2,7 @@ using HypothesisTests
 using QuadGK
 using Random
 using SpecialFunctions
+using Statistics
 using Test
 
 using LevyProcesses
@@ -22,6 +23,14 @@ using LevyProcesses
 
     @testset "Normal variance mean process tests" begin
         include("processes/nvm.jl")
+    end
+
+    @testset "SDE tests" begin
+        include("sdes.jl")
+    end
+
+    @testset "Jumps tests" begin
+        include("jumps.jl")
     end
 
 end
