@@ -48,35 +48,59 @@ const NVMDrivenSDE = LevyDrivenLinearSDE{P,D,T} where {P<:NormalVarianceMeanProc
 function sample_conditional_marginal(
     rng::AbstractRNG,
     sde::NVMDrivenSDE,
-    x0::Vector,
-    t::Real
+    t::Real;
+    x0::Union{Nothing,Vector}=nothing
 )
     # TODO: this needs to be generalised for other cases
     subordinator_path = sample(rng, sde.driving_process.subordinator, t)
-    return conditional_marginal(subordinator_path, sde, x0, t)
+    return conditional_marginal(subordinator_path, sde, t; x0)
 end
 
 function conditional_marginal(
     subordinator_path::SampleJumps,
     sde::NVMDrivenSDE,
-    x0::Vector,
-    t::Real
+    t::Real;
+    x0::Union{Nothing,Vector}=nothing
 )
-    dyn = sde.linear_dynamics
-    μ_W, σ_W = sde.driving_process.μ, sde.driving_process.σ
+    m, S = conditional_marginal_parameters(subordinator_path, sde, t; x0)
+    # HACK: Force PSD
+    S = (S + S') / 2 + 1e-4 * I
+    return MvNormal(m, S)
+end
 
-    μ = exp(dyn, t) * x0
-    Σ = zeros(length(x0), length(x0))
+function conditional_marginal_parameters(
+    subordinator_path::SampleJumps{T},
+    sde::NVMDrivenSDE,
+    t::Real;
+    x0::Union{Nothing,Vector{T}}=nothing
+) where {T}
+    m, S = unscaled_conditional_marginal_parameters(subordinator_path, sde, t)
+    m *= sde.driving_process.μ
+    S *= sde.driving_process.σ^2
+    isnothing(x0) || (m += exp(sde.linear_dynamics, t) * x0)  # not scaled by μ_W
+    return m, S
+end
+
+function unscaled_conditional_marginal_parameters(
+    subordinator_path::SampleJumps{T},
+    sde::NVMDrivenSDE,
+    t::Real;
+    x0::Union{Nothing,Vector{T}}=nothing
+) where {T}
+    dyn = sde.linear_dynamics
+    D = length(sde.noise_scaling)
+
+    m = zeros(T, D)
+    S = zeros(T, D, D)
     for (v, z) in zip(subordinator_path.jump_times, subordinator_path.jump_sizes)
         ft = exp(dyn, (t - v)) * sde.noise_scaling
-        μ += ft * μ_W * z
-        # TODO: think this should be just z for the NVM case (z^2 for NσM, e.g. stable)
-        Σ += ft * ft' * σ_W^2 * z^2
+        m += ft * z
+        S += ft * ft' * z
     end
-    # HACK: Force to be PD
-    Σ = (Σ + Σ') / 2 + 1e-5 * I
 
-    return MvNormal(μ, Σ)
+    isnothing(x0) || (m += exp(dyn, t) * x0)
+
+    return m, S
 end
 
 function sum_blocks!(μs, Σs, μ, Σ, offsets, num_runs_ref)
@@ -101,29 +125,16 @@ end
 export conditional_marginal_parameters
 
 function conditional_marginal_parameters(
-    subordinator_paths::RaggedBatchSampleJumps,
+    subordinator_paths::RaggedBatchSampleJumps{T},
     sde::NVMDrivenSDE,
     t::Real
-)
-    dyn = sde.linear_dynamics
-    μ_W, σ_W = sde.driving_process.μ, sde.driving_process.σ
-
-    expAs = compute_expAs(dyn, t .- subordinator_paths.jump_times)
-    expA_h = NNlib.batched_vec(expAs, cu(sde.noise_scaling))
-    μs = μ_W * expA_h .* subordinator_paths.jump_sizes'
-    Σs = (
-        σ_W^2 *
-        NNlib.batched_mul(
-            reshape(expA_h, 2, 1, subordinator_paths.tot_N),
-            reshape(expA_h, 1, 2, subordinator_paths.tot_N)
-        ) .*
-        reshape((subordinator_paths.jump_sizes .^ 2), 1, 1, subordinator_paths.tot_N)
-    )
+) where {T}
+    μs, Σs = calc_jump_contributions(subordinator_paths.jump_times, subordinator_paths.jump_sizes, sde, t)
 
     N = length(subordinator_paths.offsets)
     num_runs_ref = CuArray([N])
-    μ = CUDA.zeros(2, N)
-    Σ = CUDA.zeros(2, 2, N)
+    μ = CUDA.zeros(T, 2, N)
+    Σ = CUDA.zeros(T, 2, 2, N)
     num_runs_ref = convert.(Int32, num_runs_ref)
     CUDA.@cuda threads = 256 blocks = 4096 sum_blocks!(
         μs, Σs, μ, Σ, subordinator_paths.offsets, num_runs_ref
@@ -132,11 +143,51 @@ function conditional_marginal_parameters(
     return μ, Σ
 end
 
-function unscaled_conditional_marginal_parameters(
-    subordinator_paths::RaggedBatchSampleJumps,
+function calc_jump_contributions(jump_times::CuVector, jump_sizes::CuVector, sde::NVMDrivenSDE, t::Real)
+    dyn = sde.linear_dynamics
+    μ_W, σ_W = sde.driving_process.μ, sde.driving_process.σ
+    tot_N = length(jump_times)
+
+    expAs = compute_expAs(dyn, t .- jump_times)
+    expA_h = NNlib.batched_vec(expAs, cu(sde.noise_scaling))
+    μs = μ_W * expA_h .* jump_sizes'
+    Σs = (
+        σ_W^2 *
+        NNlib.batched_mul(
+            reshape(expA_h, 2, 1, tot_N),
+            reshape(expA_h, 1, 2, tot_N)
+        ) .*
+        reshape(jump_sizes, 1, 1, tot_N)
+    )
+    return μs, Σs
+end
+
+function conditional_marginal_parameters(
+    subordinator_paths::RegularBatchSampleJumps,
     sde::NVMDrivenSDE,
     t::Real
 )
+    # Flatten jumps
+    jump_sizes_flat = reshape(subordinator_paths.jump_sizes, prod(size(subordinator_paths.jump_sizes)))
+    jump_times_flat = reshape(subordinator_paths.jump_times, prod(size(subordinator_paths.jump_times)))
+
+    μs, Σs = calc_jump_contributions(jump_times_flat, jump_sizes_flat, sde, t)
+
+    # Reshape and reduce
+    μs = reshape(μs, size(μs, 1), size(subordinator_paths.jump_sizes)...)
+    Σs = reshape(Σs, size(Σs)[1:2]..., size(subordinator_paths.jump_sizes)...)
+
+    μ = dropdims(sum(μs, dims=2), dims=2)
+    Σ = dropdims(sum(Σs, dims=3), dims=3)
+
+    return μ, Σ
+end
+
+function unscaled_conditional_marginal_parameters(
+    subordinator_paths::RaggedBatchSampleJumps{T},
+    sde::NVMDrivenSDE,
+    t::Real
+) where {T}
     dyn = sde.linear_dynamics
 
     expAs = compute_expAs(dyn, t .- subordinator_paths.jump_times)
@@ -147,17 +198,50 @@ function unscaled_conditional_marginal_parameters(
             reshape(expA_h, 2, 1, subordinator_paths.tot_N),
             reshape(expA_h, 1, 2, subordinator_paths.tot_N)
         ) .*
-        reshape((subordinator_paths.jump_sizes .^ 2), 1, 1, subordinator_paths.tot_N)
+        reshape(subordinator_paths.jump_sizes, 1, 1, subordinator_paths.tot_N)
     )
 
     N = length(subordinator_paths.offsets)
     num_runs_ref = CuArray([N])
-    m = CUDA.zeros(2, N)
-    S = CUDA.zeros(2, 2, N)
+    m = CUDA.zeros(T, 2, N)
+    S = CUDA.zeros(T, 2, 2, N)
     num_runs_ref = convert.(Int32, num_runs_ref)
     CUDA.@cuda threads = 256 blocks = 4096 sum_blocks!(
         ms, Ss, m, S, subordinator_paths.offsets, num_runs_ref
     )
+
+    return m, S
+end
+
+function unscaled_conditional_marginal_parameters(
+    subordinator_paths::RegularBatchSampleJumps{T},
+    sde::NVMDrivenSDE,
+    t::Real
+) where {T}
+    dyn = sde.linear_dynamics
+
+    # Flatten jumps
+    jump_sizes_flat = reshape(subordinator_paths.jump_sizes, prod(size(subordinator_paths.jump_sizes)))
+    jump_times_flat = reshape(subordinator_paths.jump_times, prod(size(subordinator_paths.jump_times)))
+    tot_N = length(jump_times_flat)
+
+    expAs = compute_expAs(dyn, t .- jump_times_flat)
+    expA_h = NNlib.batched_vec(expAs, cu(sde.noise_scaling))
+    ms = expA_h .* jump_sizes_flat'
+    Ss = (
+        NNlib.batched_mul(
+            reshape(expA_h, 2, 1, tot_N),
+            reshape(expA_h, 1, 2, tot_N)
+        ) .*
+        reshape(jump_sizes_flat, 1, 1, tot_N)
+    )
+
+    # Reshape and reduce
+    ms = reshape(ms, size(ms, 1), size(subordinator_paths.jump_sizes)...)
+    Ss = reshape(Ss, size(Ss)[1:2]..., size(subordinator_paths.jump_sizes)...)
+
+    m = dropdims(sum(ms, dims=2), dims=2)
+    S = dropdims(sum(Ss, dims=3), dims=3)
 
     return m, S
 end
