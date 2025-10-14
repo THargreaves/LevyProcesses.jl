@@ -34,6 +34,24 @@ struct SampleJumps{T<:Real}
     jump_sizes::Vector{T}
 end
 
+function Base.length(s::SampleJumps)
+    return length(s.jump_times)
+end
+function Base.sort(s::SampleJumps)
+    idx = sortperm(s.jump_times)
+    return SampleJumps(
+        s.jump_times[idx],
+        s.jump_sizes[idx]
+    )
+end
+function Base.sort!(s::SampleJumps)
+    idx = sortperm(s.jump_times)
+    permute!(s.jump_times, idx)
+    permute!(s.jump_sizes, idx)
+    return s
+end
+
+
 struct MarginalisedSampleJumps{T<:Real}
     jump_times::Vector{T}
     jump_means::Vector{T}
