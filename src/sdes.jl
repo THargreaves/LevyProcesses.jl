@@ -19,7 +19,7 @@ end
 function Base.exp(dyn::LangevinDynamics, dt::Real)
     θ = dyn.θ
     exp_val = exp(θ * dt)
-    return StaticArrays.@SMatrix [1.0 (exp_val-1)/θ; 0 exp_val]
+    return @SMatrix [1.0 (exp_val - 1)/θ; 0 exp_val]
 end
 
 function compute_expAs(dyn::LangevinDynamics, dt::CuVector{T}) where {T<:Number}
@@ -57,7 +57,7 @@ function conditional_marginal(
     subordinator_path::SampleJumps,
     sde::NVMDrivenSDE,
     t::Real;
-    x0::Union{Nothing,Vector}=nothing,
+    x0::Union{Nothing,AbstractVector}=nothing,
 )
     m, S = conditional_marginal_parameters(subordinator_path, sde, t; x0)
     # HACK: Force PSD
@@ -66,11 +66,11 @@ function conditional_marginal(
 end
 
 function conditional_marginal_parameters(
-    subordinator_path::SampleJumps{T},
+    subordinator_path::SampleJumps,
     sde::NVMDrivenSDE,
     t::Real;
-    x0::Union{Nothing,Vector{T}}=nothing,
-) where {T}
+    x0::Union{Nothing,AbstractVector}=nothing,
+)
     m, S = unscaled_conditional_marginal_parameters(subordinator_path, sde, t)
     m *= sde.driving_process.μ
     S *= sde.driving_process.σ^2
@@ -82,17 +82,18 @@ function unscaled_conditional_marginal_parameters(
     subordinator_path::SampleJumps{T},
     sde::NVMDrivenSDE,
     t::Real;
-    x0::Union{Nothing,Vector{T}}=nothing,
+    x0::Union{Nothing,AbstractVector{T}}=nothing,
 ) where {T}
     dyn = sde.linear_dynamics
     D = length(sde.noise_scaling)
 
-    m = zeros(T, D)
-    S = zeros(T, D, D)
+    m = @SVector zeros(T, D)
+    S = @SMatrix zeros(T, D, D)
     for (v, z) in zip(subordinator_path.jump_times, subordinator_path.jump_sizes)
         ft = exp(dyn, (t - v)) * sde.noise_scaling
-        m += ft * z
-        S += ft * ft' * z
+        ft_z = ft * z
+        m += ft_z
+        S += ft_z * ft'
     end
 
     isnothing(x0) || (m += exp(dyn, t) * x0)

@@ -4,7 +4,7 @@ import QuadGK: quadgk
 import Random: AbstractRNG, default_rng
 using SpecialFunctions: SpecialFunctions
 import StatsBase: sample
-using StaticArrays: StaticArrays
+using StaticArrays
 
 export LevyProcess, Subordinator, TruncatedLevyProcess, TruncatedSubordinator, SampleJumps
 export levy_density, log_levy_density, levy_drift, levy_tail_mass, inverse_levy_tail_mass
@@ -16,10 +16,10 @@ abstract type LevyProcess{T} end
 
 # Expected methods
 function levy_density(p::LevyProcess, ::Real)
-    error("levy_density not implemented for $(typeof(p))")
+    return error("levy_density not implemented for $(typeof(p))")
 end
 function inverse_levy_tail_mass(p::LevyProcess{T}, ::T) where {T<:Real}
-    error("inverse_levy_tail_mass not implemented for $(typeof(p))")
+    return error("inverse_levy_tail_mass not implemented for $(typeof(p))")
 end
 
 # Default methods
