@@ -12,7 +12,7 @@ struct NormalVarianceMeanProcess{T<:Real,P<:LevyProcess{T}} <: LevyProcess{T}
     σ::T
 end
 
-const VarianceGammaProcess{T<:AbstractFloat} = NormalVarianceMeanProcess{GammaProcess{T},T}
+const VarianceGammaProcess{T<:AbstractFloat} = NormalVarianceMeanProcess{T,GammaProcess{T}}
 
 # HACK: temporary fix whilst tail mass is mandatory
 function levy_tail_mass(p::VarianceGammaProcess{T}, x::T) where {T<:AbstractFloat}
@@ -24,7 +24,7 @@ end
 ################################################
 
 const PreTruncatedNormalVarianceMeanProcess{T<:AbstractFloat} =
-    NormalVarianceMeanProcess{TruncatedLevyProcess{GammaProcess{T}},T}
+    NormalVarianceMeanProcess{T,TruncatedLevyProcess{T,GammaProcess{T}}}
 
 function sample(rng::AbstractRNG, p::PreTruncatedNormalVarianceMeanProcess, dt::Real)
     subordinator_path = sample(rng, p.subordinator, dt)
@@ -47,7 +47,7 @@ end
 ####  VARIANCE GAMMA PROCESS ####
 #################################
 
-const TruncatedVarianceGammaProcess{T<:AbstractFloat} = TruncatedLevyProcess{VarianceGammaProcess{T}}
+const TruncatedVarianceGammaProcess{T<:AbstractFloat} = TruncatedLevyProcess{T,VarianceGammaProcess{T}}
 
 struct VarianceGammaMarginal{T<:Real} <: ContinuousUnivariateDistribution
     α::T
