@@ -46,8 +46,13 @@ function marginal(p::StableSubordinator, t::Real)
     return Stable(p.α, 1.0, p.σ * t^(1 / p.α), 0.0)
 end
 
-function sample(
-    rng::AbstractRNG, p::TruncatedLevyProcess{StableSubordinator{T}}, dt::T
-) where {T}
+###########################################
+#### TRUNCATED STABLE SUBORDINATOR ####
+###########################################
+
+const TruncatedStableSubordinator{T<:Real} = TruncatedLevyProcess{T,StableSubordinator{T}}
+
+# Default sampling method uses Inversion
+function sample(rng::AbstractRNG, p::TruncatedStableSubordinator{T}, dt::Real) where {T}
     return sample(rng, p, dt, Inversion)
 end
