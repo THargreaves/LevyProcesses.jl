@@ -1,4 +1,4 @@
-import Optim
+using Optim: Optim
 import SpecialFunctions: gamma
 import StableDistributions: Stable
 
@@ -27,7 +27,8 @@ function StableSubordinator(α::Real, C::Real)
     c_α = gamma(α) / π * sin(π * α / 2)
 
     # Optimise parameter rejection sampling
-    log_cost(λ) = log(α) + log(A_0) + ζ^(1 / α) * λ^(1 - 1 / α) * A_1 + (α - 2) * log(A_0 - λ)
+    log_cost(λ) =
+        log(α) + log(A_0) + ζ^(1 / α) * λ^(1 - 1 / α) * A_1 + (α - 2) * log(A_0 - λ)
     res = Optim.optimize(λ -> log_cost(λ), 0, A_0)
     λ = Optim.minimizer(res)
     M = α * A_0 * exp(ζ^(1 / α) * λ^(1 - 1 / α) * A_1) * (A_0 - λ)^(α - 2)
@@ -45,6 +46,8 @@ function marginal(p::StableSubordinator, t::Real)
     return Stable(p.α, 1.0, p.σ * t^(1 / p.α), 0.0)
 end
 
-function sample(rng::AbstractRNG, p::TruncatedLevyProcess{StableSubordinator{T}}, dt::T) where {T}
+function sample(
+    rng::AbstractRNG, p::TruncatedLevyProcess{StableSubordinator{T}}, dt::T
+) where {T}
     return sample(rng, p, dt, Inversion)
 end

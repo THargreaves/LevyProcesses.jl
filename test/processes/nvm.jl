@@ -25,10 +25,7 @@ using LevyProcesses
     rng = MersenneTwister(1234)
 
     # Generate samples
-    marginal_samples = [
-        sum(sample(rng, test_process, test_t).jump_sizes)
-        for _ in 1:REPS
-    ]
+    marginal_samples = [sum(sample(rng, test_process, test_t).jump_sizes) for _ in 1:REPS]
 
     # Compare with ground truth
     test = ExactOneSampleKSTest(marginal_samples, test_marginal)
@@ -59,10 +56,7 @@ end
     rng = MersenneTwister(1234)
 
     # Generate samples
-    marginal_samples = [
-        sum(sample(rng, test_truncated, test_t).jump_sizes)
-        for _ in 1:REPS
-    ]
+    marginal_samples = [sum(sample(rng, test_truncated, test_t).jump_sizes) for _ in 1:REPS]
 
     # Compare with ground truth
     test = ExactOneSampleKSTest(marginal_samples, test_marginal)
@@ -94,13 +88,9 @@ end
     rng = MersenneTwister(1234)
 
     # Generate samples
-    direct_samples = [
-        sum(sample(rng, test_truncated, test_t).jump_sizes)
-        for _ in 1:REPS
-    ]
+    direct_samples = [sum(sample(rng, test_truncated, test_t).jump_sizes) for _ in 1:REPS]
     subordinated_samples = [
-        sum(sample(rng, test_process, test_t).jump_sizes)
-        for _ in 1:REPS
+        sum(sample(rng, test_process, test_t).jump_sizes) for _ in 1:REPS
     ]
 
     # Compare with ground truth

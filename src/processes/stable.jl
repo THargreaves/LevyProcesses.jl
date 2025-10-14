@@ -26,9 +26,7 @@ function StableProcess(α::Real, μ_W::Real, σ_W::Real)
 end
 
 function levy_density(p::StableProcess, x::Real)
-    return (
-        p.σ^p.α * p.C_α * (1 + p.β * sign(x)) * p.α * abs(x)^(-p.α - 1)
-    )
+    return (p.σ^p.α * p.C_α * (1 + p.β * sign(x)) * p.α * abs(x)^(-p.α - 1))
 end
 
 function levy_tail_mass(p::StableProcess, x::Real)

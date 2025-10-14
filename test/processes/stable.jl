@@ -41,10 +41,7 @@ end
     rng = MersenneTwister(1234)
 
     # Generate samples
-    marginal_samples = [
-        sum(sample(rng, test_process, test_t).jump_sizes)
-        for _ in 1:REPS
-    ]
+    marginal_samples = [sum(sample(rng, test_process, test_t).jump_sizes) for _ in 1:REPS]
 
     # Compare with ground truth
     test = ExactOneSampleKSTest(marginal_samples, marginal(p, test_t))

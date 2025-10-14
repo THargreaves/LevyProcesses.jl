@@ -9,7 +9,8 @@ using LevyProcesses
     test_process = StableSubordinator(0.5, 0.1)
     test_x = 1.2
 
-    @test levy_tail_mass(test_process, test_x) ≈ quadgk(Base.Fix1(levy_density, test_process), test_x, Inf)[1]
+    @test levy_tail_mass(test_process, test_x) ≈
+        quadgk(Base.Fix1(levy_density, test_process), test_x, Inf)[1]
 end
 
 @testitem "StableSubordinator: Inverse Lévy tail mass" begin
@@ -38,10 +39,7 @@ end
     rng = MersenneTwister(1234)
 
     # Generate samples
-    marginal_samples = [
-        sum(sample(rng, p, test_t, Inversion).jump_sizes)
-        for _ in 1:REPS
-    ]
+    marginal_samples = [sum(sample(rng, p, test_t, Inversion).jump_sizes) for _ in 1:REPS]
 
     # Compare with ground truth
     test = ExactOneSampleKSTest(marginal_samples, marginal(p.process, test_t))
@@ -68,17 +66,13 @@ end
     n_approx = 1000
     p_approx = TruncatedLevyProcess(StableSubordinator(α, C); u=u, l=1e-9)
     approx_samples = [
-        sum(sample(rng, p_approx, t, Inversion).jump_sizes)
-        for _ in 1:n_approx
+        sum(sample(rng, p_approx, t, Inversion).jump_sizes) for _ in 1:n_approx
     ]
 
     # Simulate increment exactly
     n_exact = 1000
     m = marginal(p, t)
-    exact_samples = [
-        sample(rng, m, HittingTime)
-        for _ in 1:n_exact
-    ]
+    exact_samples = [sample(rng, m, HittingTime) for _ in 1:n_exact]
 
     # Compare distributions
     test = ApproximateTwoSampleKSTest(approx_samples, exact_samples)

@@ -40,23 +40,37 @@ levy_density(p::GammaDominatingProcess, x::Real) = p.γ / (x * (1 + p.λ * x))
 levy_tail_mass(p::GammaDominatingProcess, x::Real) = p.γ * log(1 + 1 / (p.λ * x))
 # WILL: should this be parameter — collision with LevyProcesses.jl:19
 # Try T<:Real
-inverse_levy_tail_mass(p::GammaDominatingProcess{T}, Γ::T) where {T<:Real} = T(1.0) / (p.λ * (exp(Γ / p.γ) - T(1.0)))
+function inverse_levy_tail_mass(p::GammaDominatingProcess{T}, Γ::T) where {T<:Real}
+    T(1.0) / (p.λ * (exp(Γ / p.γ) - T(1.0)))
+end
 
-inverse_levy_tail_mass(p::GammaDominatingProcess{T}, Γs::AbstractVector{T}) where {T} = T(1.0) ./ (p.λ .* (exp.(Γs ./ p.γ) .- T(1.0)))
+function inverse_levy_tail_mass(
+    p::GammaDominatingProcess{T}, Γs::AbstractVector{T}
+) where {T}
+    T(1.0) ./ (p.λ .* (exp.(Γs ./ p.γ) .- T(1.0)))
+end
 
-const TruncatedGammaDominatingProcess{T<:Real} = TruncatedLevyProcess{T,GammaDominatingProcess{T}}
-sample(rng::AbstractRNG, p::TruncatedGammaDominatingProcess, dt::Real) = sample(rng, p, dt, Inversion)
+const TruncatedGammaDominatingProcess{T<:Real} = TruncatedLevyProcess{
+    T,GammaDominatingProcess{T}
+}
+function sample(rng::AbstractRNG, p::TruncatedGammaDominatingProcess, dt::Real)
+    sample(rng, p, dt, Inversion)
+end
 
 # Default sampling method — roughly 2x faster than Inversion
 function sample(rng::AbstractRNG, p::TruncatedGammaProcess{T}, dt::Real) where {T}
-    p₀ = TruncatedLevyProcess(GammaDominatingProcess(p.process.γ, p.process.λ), p.lower, p.upper)
+    p₀ = TruncatedLevyProcess(
+        GammaDominatingProcess(p.process.γ, p.process.λ), p.lower, p.upper
+    )
     levy_density_ratio(x) = (1 + p.process.λ * x) * exp(-p.process.λ * x)
     return sample(rng, p, dt, p₀, Rejection; levy_density_ratio=levy_density_ratio)
 end
 
 # Default batch rejection method
 function sample(p::TruncatedGammaProcess{T}, dt::Real, N::Integer, BatchRejection) where {T}
-    p₀ = TruncatedLevyProcess(GammaDominatingProcess(p.process.γ, p.process.λ), p.lower, p.upper)
+    p₀ = TruncatedLevyProcess(
+        GammaDominatingProcess(p.process.γ, p.process.λ), p.lower, p.upper
+    )
     levy_density_ratio(x) = (1 + p.process.λ * x) * exp(-p.process.λ * x)
     return sample(p, dt, N, p₀, BatchRejection; levy_density_ratio=levy_density_ratio)
 end

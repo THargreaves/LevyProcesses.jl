@@ -4,7 +4,8 @@ const HittingTime = HittingTimeMethod()
 export HittingTime
 
 function sample(rng::AbstractRNG, m::TruncatedLevyProcessMarginal, ::HittingTimeMethod)
-    m.process.lower == 0.0 || error("HittingTimeMethod only supports processes with lower bound 0.")
+    m.process.lower == 0.0 ||
+        error("HittingTimeMethod only supports processes with lower bound 0.")
 
     Z = 0.0
     S = 0.0
@@ -40,7 +41,9 @@ function sample_hit(rng::AbstractRNG, p::StableSubordinator)
         R = rand(rng, Gamma(2 - p.α, 1 / (A_U - p.λ)))  # scale param so flip expression from paper
         V = rand(rng, Uniform(0, 1))
         accept_p = (
-            p.α * A_U * exp(p.ζ * R^(1 - p.α) * Y^p.α) *
+            p.α *
+            A_U *
+            exp(p.ζ * R^(1 - p.α) * Y^p.α) *
             exp(-p.λ * R) *
             (A_U - p.λ)^(p.α - 2) *
             Y^(p.α - 1) *

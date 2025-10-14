@@ -15,7 +15,7 @@ using LevyProcesses
     cpu_jump_nums = [cpu_jump_offsets[1], diff(cpu_jump_offsets)...]
 
     jumps = sample(p, dt, N - K, BatchRejection; spare_slots=cpu_jump_nums)
-    jumps[:, N-K+1:N] = new_jumps
+    jumps[:, (N - K + 1):N] = new_jumps
 
-    @test jumps.jump_sizes == vcat(jumps.jump_sizes[1:N-K], new_jumps.jump_sizes)
+    @test jumps.jump_sizes == vcat(jumps.jump_sizes[1:(N - K)], new_jumps.jump_sizes)
 end

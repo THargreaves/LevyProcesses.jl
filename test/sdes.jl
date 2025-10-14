@@ -37,11 +37,10 @@ using LevyProcesses
     for r in 1:REPS
         x = copy(x0)
         for i in 1:length(jumps.jump_times)
-            last_jump = i > 1 ? jumps.jump_times[i-1] : 0.0
+            last_jump = i > 1 ? jumps.jump_times[i - 1] : 0.0
             dt = jumps.jump_times[i] - last_jump
             subordinator_increment = (
-                μ_W * jumps.jump_sizes[i] +
-                σ_W * sqrt(jumps.jump_sizes[i]) * randn(rng)
+                μ_W * jumps.jump_sizes[i] + σ_W * sqrt(jumps.jump_sizes[i]) * randn(rng)
             )
             x = exp(dyn, dt) * x + h * subordinator_increment
         end

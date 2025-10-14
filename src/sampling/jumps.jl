@@ -1,6 +1,6 @@
 abstract type LevySamplingMethod end
 
-import CUDA
+using CUDA: CUDA
 import CUDA: CuArray
 import Distributions: Poisson, Uniform
 
@@ -16,7 +16,9 @@ struct InversionMethod <: LevySamplingMethod end
 const Inversion = InversionMethod()
 
 # TODO: this is only valid for subordinators
-function sample(rng::AbstractRNG, p::TruncatedLevyProcess{T}, dt::Real, ::InversionMethod) where {T}
+function sample(
+    rng::AbstractRNG, p::TruncatedLevyProcess{T}, dt::Real, ::InversionMethod
+) where {T}
     N = rand(rng, Poisson(dt * p.mass))
     Γs = rand(rng, T, N) * (p.upper_tail_mass - p.lower_tail_mass) .+ p.lower_tail_mass
     jump_sizes = inverse_levy_tail_mass.(Ref(p.process), Γs)
@@ -32,10 +34,11 @@ const Rejection = RejectionMethod()
 
 function sample(
     rng::AbstractRNG,
-    p::TruncatedLevyProcess, dt::Real,
+    p::TruncatedLevyProcess,
+    dt::Real,
     p₀::TruncatedLevyProcess,
     ::RejectionMethod;
-    levy_density_ratio::Union{Function,Nothing}=nothing
+    levy_density_ratio::Union{Function,Nothing}=nothing,
 )
     dominating_jumps = sample(rng, p₀, dt)
     xs = dominating_jumps.jump_sizes
@@ -48,10 +51,7 @@ function sample(
     end
     keep = rand(rng, length(ps)) .< ps
 
-    return SampleJumps(
-        dominating_jumps.jump_times[keep],
-        dominating_jumps.jump_sizes[keep]
-    )
+    return SampleJumps(dominating_jumps.jump_times[keep], dominating_jumps.jump_sizes[keep])
 end
 
 ##################################
@@ -68,7 +68,9 @@ struct RaggedBatchSampleJumps
     tot_N::Int
 end
 
-function sample(p::TruncatedLevyProcess{T}, dt::T, N::Integer, ::BatchInversionMethod) where {T}
+function sample(
+    p::TruncatedLevyProcess{T}, dt::T, N::Integer, ::BatchInversionMethod
+) where {T}
     Ns = CUDA.rand_poisson(UInt32, N; lambda=dt * p.mass)
     offsets = cumsum(Ns)
     tot_N = sum(Ns)
@@ -87,10 +89,12 @@ const BatchRejection = BatchRejectionMethod()
 # 2. Cumsum num rejections
 # 3. Subtract from offsets
 function sample(
-    p::TruncatedLevyProcess, dt::T, N::Integer,
+    p::TruncatedLevyProcess,
+    dt::T,
+    N::Integer,
     p₀::TruncatedLevyProcess,
     ::BatchRejectionMethod;
-    levy_density_ratio::Union{Function,Nothing}=nothing
+    levy_density_ratio::Union{Function,Nothing}=nothing,
 ) where {T}
     # TODO: this should be more generic
     dominating_jumps = sample(p₀, dt, N, BatchInversion)
@@ -109,7 +113,7 @@ function sample(
         dominating_jumps.jump_sizes,
         dominating_jumps.jump_times,
         dominating_jumps.offsets,
-        dominating_jumps.tot_N
+        dominating_jumps.tot_N,
     )
 end
 
@@ -122,7 +126,7 @@ end
 function sample(p::FixedLevyProcess, dt::Real, N::Integer, ::BatchInversionMethod)
     Us = CUDA.rand(p.N, N)
     Es = -log.(Us) ./ dt
-    Γs = cumsum(Es, dims=1)
+    Γs = cumsum(Es; dims=1)
     jump_sizes = inverse_levy_tail_mass.(Ref(p.process), Γs)
     jump_times = dt * CUDA.rand(p.N, N)
     return RegularBatchSampleJumps(jump_sizes, jump_times, N)

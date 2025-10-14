@@ -23,8 +23,9 @@ end
 #### TRUNCATED NORMAL VARIANCE MEAN PROCESS ####
 ################################################
 
-const PreTruncatedNormalVarianceMeanProcess{T<:AbstractFloat} =
-    NormalVarianceMeanProcess{T,TruncatedLevyProcess{T,GammaProcess{T}}}
+const PreTruncatedNormalVarianceMeanProcess{T<:AbstractFloat} = NormalVarianceMeanProcess{
+    T,TruncatedLevyProcess{T,GammaProcess{T}}
+}
 
 function sample(rng::AbstractRNG, p::PreTruncatedNormalVarianceMeanProcess, dt::Real)
     subordinator_path = sample(rng, p.subordinator, dt)
@@ -36,7 +37,9 @@ function sample(rng::AbstractRNG, p::PreTruncatedNormalVarianceMeanProcess, dt::
     return SampleJumps(subordinator_path.jump_times, jump_sizes)
 end
 
-function sample_marginalised(rng::AbstractRNG, p::PreTruncatedNormalVarianceMeanProcess, dt::Real)
+function sample_marginalised(
+    rng::AbstractRNG, p::PreTruncatedNormalVarianceMeanProcess, dt::Real
+)
     subordinator_path = sample(rng, p.subordinator, dt)
     jump_means = p.μ .* subordinator_path.jump_sizes
     jump_variances = p.σ^2 .* subordinator_path.jump_sizes
@@ -47,7 +50,9 @@ end
 ####  VARIANCE GAMMA PROCESS ####
 #################################
 
-const TruncatedVarianceGammaProcess{T<:AbstractFloat} = TruncatedLevyProcess{T,VarianceGammaProcess{T}}
+const TruncatedVarianceGammaProcess{T<:AbstractFloat} = TruncatedLevyProcess{
+    T,VarianceGammaProcess{T}
+}
 
 struct VarianceGammaMarginal{T<:Real} <: ContinuousUnivariateDistribution
     α::T
@@ -69,7 +74,9 @@ function VarianceGammaMarginal(μ::T, σ::T, γ::T, λ::T, t::T) where {T<:Real}
     return VarianceGammaMarginal(α, β, λ, γ)
 end
 
-function sample(rng::AbstractRNG, p::TruncatedVarianceGammaProcess{T}, dt::T) where {T<:AbstractFloat}
+function sample(
+    rng::AbstractRNG, p::TruncatedVarianceGammaProcess{T}, dt::T
+) where {T<:AbstractFloat}
     # Scale subordinator to have unit mean
     κ = 1 / p.process.subordinator.λ
     dt *= p.process.subordinator.γ / p.process.subordinator.λ
@@ -86,7 +93,7 @@ function sample(rng::AbstractRNG, p::TruncatedVarianceGammaProcess{T}, dt::T) wh
 
     return SampleJumps(
         vcat(positive_jumps.jump_times, negative_jumps.jump_times),
-        vcat(positive_jumps.jump_sizes, -negative_jumps.jump_sizes)
+        vcat(positive_jumps.jump_sizes, -negative_jumps.jump_sizes),
     )
 end
 
@@ -110,11 +117,5 @@ function cdf(d::VarianceGammaMarginal, x::Real)
 end
 
 function marginal(p::VarianceGammaProcess{T}, t::Real) where {T<:AbstractFloat}
-    return VarianceGammaMarginal(
-        p.μ,
-        p.σ,
-        p.subordinator.γ,
-        p.subordinator.λ,
-        t
-    )
+    return VarianceGammaMarginal(p.μ, p.σ, p.subordinator.γ, p.subordinator.λ, t)
 end

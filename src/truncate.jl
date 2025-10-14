@@ -28,7 +28,9 @@ end
 ### Constructors
 
 # TODO: would it be better to use `nothing` for no bounds so that we can dispatch on this?
-function TruncatedLevyProcess(p::LevyProcess, l::Real, u::Real; approximate_residual::Bool=false)
+function TruncatedLevyProcess(
+    p::LevyProcess, l::Real, u::Real; approximate_residual::Bool=false
+)
     l < u || throw(ArgumentError("the lower bound must be less than the upper bound."))
     l >= 0 || throw(ArgumentError("the lower bound must be non-negative."))
     u > 0 || throw(ArgumentError("the upper bound must be positive."))
@@ -44,11 +46,15 @@ function TruncatedLevyProcess(p::LevyProcess, l::Real, u::Real; approximate_resi
         drift += mean(residual_process)
         variance += var(residual_process)
     end
-    return TruncatedLevyProcess(p, l, u, drift, variance, lower_tail_mass, upper_tail_mass, mass)
+    return TruncatedLevyProcess(
+        p, l, u, drift, variance, lower_tail_mass, upper_tail_mass, mass
+    )
 end
 
 # TruncatedLevyProcess(p::LevyProcess, l::Real, u::Real) = TruncatedLevyProcess(p, Float64(l), Float64(u))
-TruncatedLevyProcess(p::LevyProcess{T}; l=0.0, u=Inf) where {T} = TruncatedLevyProcess(p, T(l), T(u))
+function TruncatedLevyProcess(p::LevyProcess{T}; l=0.0, u=Inf) where {T}
+    TruncatedLevyProcess(p, T(l), T(u))
+end
 
 ### Support
 islowerbounded(p::TruncatedLevyProcess) = islowerbounded(p.process) || p.lower > 0

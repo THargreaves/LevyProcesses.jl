@@ -2,9 +2,9 @@ module LevyProcesses
 
 import QuadGK: quadgk
 import Random: AbstractRNG, default_rng
-import SpecialFunctions
+using SpecialFunctions: SpecialFunctions
 import StatsBase: sample
-import StaticArrays
+using StaticArrays: StaticArrays
 
 export LevyProcess, Subordinator, TruncatedLevyProcess, TruncatedSubordinator, SampleJumps
 export levy_density, log_levy_density, levy_drift, levy_tail_mass, inverse_levy_tail_mass
@@ -14,10 +14,13 @@ export sample
 
 abstract type LevyProcess{T} end
 
-
 # Expected methods
-levy_density(p::LevyProcess, ::Real) = error("levy_density not implemented for $(typeof(p))")
-inverse_levy_tail_mass(p::LevyProcess{T}, ::T) where {T<:Real} = error("inverse_levy_tail_mass not implemented for $(typeof(p))")
+function levy_density(p::LevyProcess, ::Real)
+    error("levy_density not implemented for $(typeof(p))")
+end
+function inverse_levy_tail_mass(p::LevyProcess{T}, ::T) where {T<:Real}
+    error("inverse_levy_tail_mass not implemented for $(typeof(p))")
+end
 
 # Default methods
 function log_levy_density(p::LevyProcess, x::Real)
@@ -39,10 +42,7 @@ function Base.length(s::SampleJumps)
 end
 function Base.sort(s::SampleJumps)
     idx = sortperm(s.jump_times)
-    return SampleJumps(
-        s.jump_times[idx],
-        s.jump_sizes[idx]
-    )
+    return SampleJumps(s.jump_times[idx], s.jump_sizes[idx])
 end
 function Base.sort!(s::SampleJumps)
     idx = sortperm(s.jump_times)
@@ -51,7 +51,6 @@ function Base.sort!(s::SampleJumps)
     return s
 end
 
-
 struct MarginalisedSampleJumps{T<:Real}
     jump_times::Vector{T}
     jump_means::Vector{T}
@@ -59,42 +58,29 @@ struct MarginalisedSampleJumps{T<:Real}
 end
 
 function unnormalised_sample_jumps_density(
-    p::TruncatedLevyProcess,
-    dt::Real,
-    path::SampleJumps
+    p::TruncatedLevyProcess, dt::Real, path::SampleJumps
 )
     N = length(path.jump_sizes)
-    return (
-        prod(levy_density(p.process, path.jump_sizes)) *
-        1 / dt^N *
-        1 / factorial(N)
-    )
+    return (prod(levy_density(p.process, path.jump_sizes)) * 1 / dt^N * 1 / factorial(N))
 end
 function normalised_sample_jumps_density(
-    p::TruncatedLevyProcess,
-    dt::Real,
-    path::SampleJumps
+    p::TruncatedLevyProcess, dt::Real, path::SampleJumps
 )
     unnormalised_density = unnormalised_sample_jumps_density(p, dt, path)
     return unnormalised_density * exp(-dt * p.mass)
 end
 
 function log_unnormalised_sample_jumps_density(
-    p::TruncatedLevyProcess,
-    dt::Real,
-    path::SampleJumps
+    p::TruncatedLevyProcess, dt::Real, path::SampleJumps
 )
     N = length(path.jump_sizes)
     return (
-        sum(log_levy_density(p.process, path.jump_sizes)) -
-        N * log(dt) -
+        sum(log_levy_density(p.process, path.jump_sizes)) - N * log(dt) -
         SpecialFunctions.logfactorial(N)
     )
 end
 function log_normalised_sample_jumps_density(
-    p::TruncatedLevyProcess,
-    dt::Real,
-    path::SampleJumps
+    p::TruncatedLevyProcess, dt::Real, path::SampleJumps
 )
     unnormalised_density = log_unnormalised_sample_path_density(p, dt, path)
     return unnormalised_density - dt * p.mass
