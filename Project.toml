@@ -28,12 +28,14 @@ SpecialFunctions = "2.6.1"
 StaticArrays = "1.9.13"
 Statistics = "1.11.1"
 Test = "1.11.0"
+TestItemRunner = "1.1.0"
 TestItems = "1.0.0"
 
 [extras]
 HypothesisTests = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
+TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 
 [targets]
-test = ["HypothesisTests", "Test", "TestItems"]
+test = ["HypothesisTests", "Test", "TestItems", "TestItemRunner"]
