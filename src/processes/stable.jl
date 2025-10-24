@@ -50,7 +50,7 @@ function sample_shot_noise(rng::AbstractRNG, p::TruncatedStableProcess, dt::Real
         end
         push!(jump_sizes, Γα)
     end
-    jump_times = rand(Uniform(0, dt), length(jump_sizes))
+    jump_times = rand(rng, Uniform(0, dt), length(jump_sizes))
     return SampleJumps(jump_times, jump_sizes)
 end
 

@@ -77,7 +77,7 @@ end
     marginal_samples = Vector{Float64}(undef, REPS)
     for i in 1:REPS
         dist = sample_conditional_marginal(rng, truncated_sde, test_x0, test_t)
-        marginal_samples[i] = rand(dist)
+        marginal_samples[i] = rand(rng, dist)
     end
 
     # Compare with ground truth
