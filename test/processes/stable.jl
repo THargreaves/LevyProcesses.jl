@@ -60,7 +60,7 @@ end
     p = StableProcess(α, μ_W, σ_W)
 
     test_t = 1.5
-    ϵ = 1e-8
+    ϵ = 1e-10
     test_process = TruncatedLevyProcess(p; l=ϵ)
 
     a = -0.5
