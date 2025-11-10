@@ -39,17 +39,16 @@ end
 
 const TruncatedStableProcess{T} = TruncatedLevyProcess{T,StableProcess{T}}
 
-function sample_shot_noise(rng::AbstractRNG, p::TruncatedStableProcess, dt::Real)
-    jump_sizes = Float64[]
-    Γ = 0.0
-    while true
-        Γ += rand(rng, Exponential(1 / dt))
-        Γα = Γ^(-1 / p.process.α)
-        if Γα < p.lower
-            break
-        end
-        push!(jump_sizes, Γα)
-    end
+# TODO: combine with regular LTM sampler
+function sample_shot_noise(
+    rng::AbstractRNG, p::TruncatedStableProcess{T}, dt::Real
+) where {T}
+    N = rand(rng, Poisson(dt * p.lower^(-p.process.α)))
+
+    Γs = rand(rng, T, N)
+    Γs *= p.lower^(-p.process.α)
+    jump_sizes = Γs .^ (-1 / p.process.α)
+
     jump_times = rand(rng, Uniform(0, dt), length(jump_sizes))
     return SampleJumps(jump_times, jump_sizes)
 end
