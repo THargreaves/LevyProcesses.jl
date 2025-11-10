@@ -249,9 +249,9 @@ struct UnivariateLinearDynamics{T<:Real} <: LinearDynamics
     a::T
 end
 
-struct TruncatedStableDrivenSDE
-    driving_process::TruncatedStableProcess
-    linear_dynamics::UnivariateLinearDynamics
+struct TruncatedStableDrivenSDE{P<:TruncatedStableProcess,D<:UnivariateLinearDynamics}
+    driving_process::P
+    linear_dynamics::D
 end
 
 struct StableDrivenSDE
