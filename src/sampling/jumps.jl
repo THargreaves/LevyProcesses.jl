@@ -2,7 +2,7 @@ abstract type LevySamplingMethod end
 
 using CUDA: CUDA
 import CUDA: CuArray
-import Distributions: Poisson, Uniform
+import Distributions: Poisson, Uniform, Exponential
 
 export Inversion, Rejection, BatchInversion, BatchRejection
 
@@ -17,21 +17,44 @@ const Inversion = InversionMethod()
 
 # TODO: this is only valid for subordinators
 function sample(
-    rng::AbstractRNG, p::TruncatedLevyProcess{T}, dt::Real, ::InversionMethod
+    rng::AbstractRNG,
+    p::TruncatedLevyProcess{T},
+    dt::Real,
+    ::InversionMethod;
+    sort_sizes::Bool=false,
+    sort_times::Bool=false,
 ) where {T}
+    sort_sizes && sort_times && error("cannot sort both jump sizes and jump times")
+
     N = rand(rng, Poisson(dt * p.mass))
 
     # Sample jump sizes
-    Γs = rand(rng, T, N)
+    Γs = sample_uniforms(rng, N; sorted=sort_sizes)
     Γs .*= p.upper_tail_mass - p.lower_tail_mass
     Γs .+= p.lower_tail_mass
     jump_sizes = inverse_levy_tail_mass.(Ref(p.process), Γs)
 
     # Sample jump times
-    jump_times = rand(rng, T, N)
+    jump_times = sample_uniforms(rng, N; sorted=sort_times)
     jump_times .*= dt
 
     return SampleJumps(jump_times, jump_sizes)
+end
+
+@inline function sample_uniforms(rng::AbstractRNG, N::Integer; sorted::Bool=false)
+    if sorted
+        Es = rand(rng, Exponential(1.0), N)
+        tot = Es[1]
+        for i in 2:N
+            tot += Es[i]
+            Es[i] = tot
+        end
+        tot += rand(rng, Exponential(1.0))
+        Es ./= tot
+        return Es
+    else
+        return rand(rng, N)
+    end
 end
 
 """Method E of Rosiński, 2001"""
