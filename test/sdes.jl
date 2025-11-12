@@ -51,3 +51,59 @@ using LevyProcesses
     @test mean(final_states) ≈ cond_marginal.μ rtol = 1e-2
     @test cov(final_states) ≈ cond_marginal.Σ rtol = 1e-2
 end
+
+@testitem "Langevian-Stable SDE projection marginals" begin
+    using LevyProcesses
+    using Random
+    using Statistics
+    using Test
+    using HypothesisTests
+    using StaticArrays
+    using LinearAlgebra
+
+    t = 0.8
+    ϵ = 1e-6
+    REPS = 1000
+
+    α = 0.7
+    μ_W = 0.6
+    σ_W = 0.9
+    θ = -0.5
+    h = @SVector [0.0, 1.0]
+
+    rng = MersenneTwister(1234)
+
+    S = StableProcess(α, μ_W, σ_W)
+    S̄ = TruncatedLevyProcess(S; l=ϵ)
+    dyn = LangevinDynamics(θ)
+    sde = LangevianStableDrivenSDE(S, dyn)
+
+    marginals = Vector{SVector{2,Float64}}(undef, REPS)
+    for r in 1:REPS
+        jumps = sample(rng, S̄, t)
+        x = @SVector [0.0, 0.0]
+        for i in 1:length(jumps.jump_sizes)
+            last_jump = i > 1 ? jumps.jump_times[i - 1] : 0.0
+            dt = jumps.jump_times[i] - last_jump
+            x = exp(dyn, dt) * x + h * jumps.jump_sizes[i]
+        end
+        dt = t - jumps.jump_times[end]
+        x = exp(dyn, dt) * x
+        marginals[r] = x
+    end
+
+    # Test over range of projection angles
+    n_tests = 32
+    ϕs = range(0, π; length=n_tests)
+    bonferroni_α = 0.05 / n_tests
+    p_values = Vector{Float64}(undef, n_tests)
+    for (i, ϕ) in enumerate(ϕs)
+        proj = @SVector [cos(ϕ), sin(ϕ)]
+        projected_samples = [dot(m, proj) for m in marginals]
+
+        analytical_dist = projection_marginal(sde, t, proj)
+        test = ExactOneSampleKSTest(projected_samples, analytical_dist)
+        p_values[i] = pvalue(test)
+    end
+    @test all(pv -> pv > bonferroni_α, p_values)
+end

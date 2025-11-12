@@ -8,6 +8,7 @@ export LevyDrivenLinearSDE
 export sample_conditional_marginal, conditional_marginal, NVMDrivenSDE
 
 export UnivariateLinearDynamics, StableDrivenSDE, TruncatedStableDrivenSDE
+export LangevianStableDrivenSDE, projection_marginal
 
 using LinearAlgebra
 
@@ -296,4 +297,99 @@ function marginal(sde::StableDrivenSDE, x0::Float64, t::Real)
     μ_new = x0 * exp(dyn.a * t)
 
     return Stable(p.α, p.β, σ_new, μ_new)
+end
+
+##############################
+#### Langevian Stable SDE ####
+##############################
+
+struct LangevianStableDrivenSDE{P<:StableProcess,D<:LangevinDynamics}
+    driving_process::P
+    dynamics::D
+end
+
+function projection_marginal(sde::LangevianStableDrivenSDE, t::Real, u::AbstractVector)
+    length(u) != 2 && throw(ArgumentError("Projection vector u must be of length 2."))
+
+    # Normalise direction vector
+    u = u / norm(u)
+
+    E = exp(sde.dynamics.θ * t)
+    A = u[1] / sde.dynamics.θ + u[2]
+    B = -u[1] / sde.dynamics.θ
+    c = B / A
+
+    α_drive, β_drive, σ_drive = (
+        sde.driving_process.α, sde.driving_process.β, sde.driving_process.σ
+    )
+
+    α_proj = α_drive
+    # TODO: add shortcut for case when c ∉ (1, E)
+    I = _stable_integral(E, c, α_drive)
+    β_proj = β_drive * (sign(A) * _signed_stable_integral(E, c, α_drive)) / I
+    σ_proj = σ_drive * abs(A) * (I / sde.dynamics.θ)^(1 / α_drive)
+    μ_proj = 0.0  # TODO: generalise this
+
+    return Stable(α_proj, β_proj, σ_proj, μ_proj)
+end
+
+"""
+Computes the integral from z = 1 to t of sign(z + c) * |z + c|^a / z dz
+"""
+function _signed_stable_integral(t::Float64, c::Float64, α::Float64)
+    # TODO: this is wrong if t < 0
+    c == 0.0 && return (t^α - 1.0) / α
+
+    u1 = (1.0 + c) / c
+    ut = (t + c) / c
+
+    return sign(c) * abs(c)^α * (_signed_F(ut, α) - _signed_F(u1, α))
+end
+
+function _signed_F(u::Float64, α::Float64)
+    u == 0.0 && return 0.0
+
+    I = if u > 0.0
+        real(
+            -u^(α + 1) / (α + 1) *
+            pFq((1.0 + 0.0im, α + 1.0 + 0.0im), (α + 2.0 + 0.0im,), u + 0.0im),
+        )
+    else
+        -real(
+            (-u)^(α + 1) / (α + 1) *
+            pFq((1.0 + 0.0im, α + 1.0 + 0.0im), (α + 2.0 + 0.0im,), u + 0.0im),
+        )
+    end
+
+    return I
+end
+
+"""
+Computes the integral from z = 1 to t of |z + c|^a / z dz
+"""
+function _stable_integral(t::Float64, c::Float64, α::Float64)
+    c == 0.0 && return (t^α - 1.0) / α
+
+    u1 = (1.0 + c) / c
+    ut = (t + c) / c
+
+    return abs(c)^α * (_F(ut, α) - _F(u1, α))
+end
+
+function _F(u::Float64, α::Float64)
+    u == 0.0 && return 0.0
+
+    I = if u > 0.0
+        real(
+            -u^(α + 1) / (α + 1) *
+            pFq((1.0 + 0.0im, α + 1.0 + 0.0im), (α + 2.0 + 0.0im,), u + 0.0im),
+        )
+    else
+        real(
+            (-u)^(α + 1) / (α + 1) *
+            pFq((1.0 + 0.0im, α + 1.0 + 0.0im), (α + 2.0 + 0.0im,), u + 0.0im),
+        )
+    end
+
+    return I
 end
