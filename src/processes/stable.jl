@@ -1,7 +1,12 @@
-import Distributions: Exponential, Normal
+import Distributions: Exponential, Normal, ContinuousUnivariateDistribution
+import Distributions: logpdf, pdf, cdf, params
 import QuadGK: quadgk
+import StableDistributions: Stable
+import SpecialFunctions: gamma, factorial
+import HypergeometricFunctions: pFq
 
 export StableProcess, TruncatedStableProcess, sample_shot_noise, sample_marginalised
+export StableGaussianConvolution
 
 # TODO: add alternative constructor
 struct StableProcess{T<:Real} <: LevyProcess{T}
@@ -73,4 +78,68 @@ function sample_marginalised(rng::AbstractRNG, p::TruncatedStableProcess, dt::Re
     jump_variances = (shot_noise_path.jump_sizes .* p.process.σ_W) .^ 2
 
     return MarginalisedSampleJumps(shot_noise_path.jump_times, jump_means, jump_variances)
+end
+
+#####################################
+#### Stable Gaussian Convolution ####
+#####################################
+
+struct StableGaussianConvolution{T<:Real} <: ContinuousUnivariateDistribution
+    stable::Stable{T}
+    normal::Normal{T}
+end
+
+function StableGaussianConvolution(S::Stable, N::Normal)
+    T = promote_type(typeof(S.α), typeof(N.μ))
+    return StableGaussianConvolution{T}(S, N)
+end
+
+function StableGaussianConvolution(S::Stable, σ::Real)
+    return StableGaussianConvolution(S, Normal(0.0, σ))
+end
+
+function params(d::StableGaussianConvolution)
+    return (d.stable, d.normal)
+end
+
+# TODO: implement adapative stopping
+# TODO: considered direct logpdf computation
+function pdf(d::StableGaussianConvolution, x::Real; M::Int=10)
+    S = d.stable
+    N = d.normal
+    α, β, σ, μ = S.α, S.β, S.σ, S.μ
+
+    σy = N.σ
+    μy = N.μ
+
+    γy = σy / sqrt(2)
+    p = γy^2
+    q = x - μ - μy
+    B = β * tan(π * α / 2)
+
+    T = 0.0
+    for m in 0:M
+        v1 = (α * m + 1) / 2
+        term_1 =
+            p^(-v1) *
+            gamma(v1) *
+            pFq([v1], [1 / 2], -(q^2) / (4 * p)) *
+            real((-1 + im * B)^m)
+
+        v2 = (α * m + 2) / 2
+        term_2 =
+            q *
+            p^(-v2) *
+            gamma(v2) *
+            pFq([v2], [3 / 2], -(q^2) / (4 * p)) *
+            imag((-1 + im * B)^m)
+
+        T += (σ^(α * m) / factorial(m)) * (term_1 + term_2)
+    end
+
+    return T / (2π)
+end
+
+function logpdf(d::StableGaussianConvolution, x::Real; M::Int=10)
+    return log(pdf(d, x; M=M))
 end

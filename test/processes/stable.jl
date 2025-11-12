@@ -84,3 +84,56 @@ end
     test = ExactOneSampleKSTest(marginal_samples, marginal(true_sde, test_x0, test_t))
     @test pvalue(test) > 0.1
 end
+
+@testitem "Stable-Gaussian convolution" begin
+    using LevyProcesses
+    using Random
+    using Test
+    using StableDistributions
+    using Distributions
+    using StatsBase
+
+    α = 0.8
+    β = 0.3
+    σ = 1.0
+    μ = 0.5
+    S = Stable(α, β, σ, μ)
+
+    σy = 0.8
+    μy = 0.2
+    N = Normal(μy, σy)
+
+    conv = StableGaussianConvolution(S, N)
+
+    REPS = 10^6
+    rng = MersenneTwister(5678)
+
+    marginal_samples = Vector{Float64}(undef, REPS)
+    for i in 1:REPS
+        marginal_samples[i] = rand(rng, S) + rand(rng, N)
+    end
+
+    # Compare pdf to histogram on filtered samples
+    filtered_samples = marginal_samples[abs.(marginal_samples .- (μ - μy)) .< 10.0]
+    Z = length(filtered_samples) / REPS
+    h = fit(Histogram, filtered_samples; nbins=200)
+    bin_centers = (h.edges[1][1:(end - 1)] .+ h.edges[1][2:end]) ./ 2
+    bin_width = h.edges[1][2] - h.edges[1][1]
+    hist_pdf = h.weights ./ (sum(h.weights) * bin_width)
+    analytical_pdf = pdf.(conv, bin_centers) ./ Z
+    @test maximum(abs.(hist_pdf .- analytical_pdf) / analytical_pdf) < 1e-3
+
+    # Plotting code for visual inspection
+    # using Plots
+    # Z = length(filtered_samples) / REPS
+    # p = histogram(
+    #     filtered_samples,
+    #     nbins=200,
+    #     normalize=true,
+    #     label="Empirical",
+    #     alpha=0.5,
+    #     legend=:topright,
+    # )
+    # xs = range(μ - μy - 10.0, μ - μy + 10.0; length=1000)
+    # plot!(xs, pdf.(conv, xs) ./ Z; label="Analytical", lw=2, color=:red)
+end
