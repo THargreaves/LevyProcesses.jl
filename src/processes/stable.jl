@@ -11,23 +11,15 @@ export StableGaussianConvolution
 # TODO: add alternative constructor
 struct StableProcess{T<:Real} <: LevyProcess{T}
     α::T
-    μ_W::T
-    σ_W::T
-    # Canonical parameterisation
     β::T
     σ::T
     # Cached values
     C_α::T
 end
-function StableProcess(α::Real, μ_W::Real, σ_W::Real)
-    α_moment = quadgk(x -> pdf(Normal(μ_W, σ_W), x) * abs(x)^α, -Inf, Inf)[1]
-    α_sgn_moment = quadgk(x -> pdf(Normal(μ_W, σ_W), x) * abs(x)^α * sign(x), -Inf, Inf)[1]
+function StableProcess(α::Real, β::Real, σ::Real)
     C_α = (1 - α) / (gamma(2 - α) * cos(π * α / 2))
 
-    σ = (α_moment / C_α)^(1 / α)
-    β = α_sgn_moment / α_moment
-
-    return StableProcess(α, μ_W, σ_W, β, σ, C_α)
+    return StableProcess(α, β, σ, C_α)
 end
 
 function levy_density(p::StableProcess, x::Real)
@@ -67,7 +59,17 @@ function sample(rng::AbstractRNG, p::TruncatedStableProcess, dt::Real)
     σ_W = p.process.σ_W
 
     jump_sizes = shot_noise_path.jump_sizes .* rand(rng, Normal(μ_W, σ_W), N)
-    jump_times = rand(Uniform(0, dt), N)
+    # jump_times = rand(Uniform(0, dt), N)
+    # Generate sorted jump times
+    jump_times = rand(rng, Exponential(1.0), N)
+    tot = 0.0
+    # Compute cummulative sum
+    for i in 1:N
+        tot += jump_times[i]
+        jump_times[i] = tot
+    end
+    tot += rand(rng, Exponential(1.0))
+    jump_times .= dt .* jump_times ./ tot
     return SampleJumps(jump_times, jump_sizes)
 end
 

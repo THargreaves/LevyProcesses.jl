@@ -1,8 +1,10 @@
 import Distributions: ContinuousUnivariateDistribution, pdf, cdf
 import QuadGK: quadgk
 import SpecialFunctions: gamma, besselk
+import HypergeometricFunctions: pFq
 
-export NormalVarianceMeanProcess, VarianceGammaProcess
+export NormalVarianceMeanProcess, VarianceGammaProcess, NσMProcess
+export to_stable
 
 # HACK: should inherit from Subordinator, but a truncated subordinator does not know that
 # it is a subordinator
@@ -30,8 +32,8 @@ const PreTruncatedNormalVarianceMeanProcess{T<:AbstractFloat} = NormalVarianceMe
 function sample(rng::AbstractRNG, p::PreTruncatedNormalVarianceMeanProcess, dt::Real)
     subordinator_path = sample(rng, p.subordinator, dt)
     jump_sizes = (
-        p.μ .* subordinator_path.jump_sizes .+
-        p.σ .* sqrt.(subordinator_path.jump_sizes) .*
+        μ̃ .* subordinator_path.jump_sizes .+
+        σ̃ .* sqrt.(subordinator_path.jump_sizes) .*
         randn(rng, length(subordinator_path.jump_sizes))
     )
     return SampleJumps(subordinator_path.jump_times, jump_sizes)
@@ -41,8 +43,8 @@ function sample_marginalised(
     rng::AbstractRNG, p::PreTruncatedNormalVarianceMeanProcess, dt::Real
 )
     subordinator_path = sample(rng, p.subordinator, dt)
-    jump_means = p.μ .* subordinator_path.jump_sizes
-    jump_variances = p.σ^2 .* subordinator_path.jump_sizes
+    jump_means = μ̃ .* subordinator_path.jump_sizes
+    jump_variances = σ̃^2 .* subordinator_path.jump_sizes
     return MarginalisedSampleJumps(subordinator_path.jump_times, jump_means, jump_variances)
 end
 
@@ -117,5 +119,58 @@ function cdf(d::VarianceGammaMarginal, x::Real)
 end
 
 function marginal(p::VarianceGammaProcess{T}, t::Real) where {T<:AbstractFloat}
-    return VarianceGammaMarginal(p.μ, p.σ, p.subordinator.γ, p.subordinator.λ, t)
+    return VarianceGammaMarginal(μ̃, σ̃, p.subordinator.γ, p.subordinator.λ, t)
+end
+
+######################################
+#### Normal Scale Mixture Process ####
+######################################
+
+struct NσMProcess{T<:Real,P<:LevyProcess{T}} <: LevyProcess{T}
+    subordinator::P
+    μ::T
+    σ::T
+end
+
+# Conversion of Stable-NσM process to StableProcess using series representation
+function to_stable(p::NσMProcess{T,StableSubordinator{T}}) where {T<:Real}
+    α, C = p.subordinator.α, p.subordinator.C
+    μ, σ = p.μ, p.σ
+    C_α = (1 - α) / (gamma(2 - α) * cos(π * α / 2))
+
+    # Correct for scaling of subordinator
+    sf = (α / C)^(-1 / α)
+    μ̃ = μ * sf
+    σ̃ = σ * sf
+
+    # Compute γ, β from μ, σ, α
+    z = -(μ̃ / σ̃)^2 / 2
+    F_γ = pFq((-(α / 2),), (1 / 2,), z)
+    γ = (σ̃^α * 2^(α / 2) * gamma((α + 1) / 2) / sqrt(π) * F_γ / C_α)^(1 / α)
+    β = (
+        (μ̃ / σ̃) * 2^(1 / 2 - α) * sqrt(π) * gamma(1 + α) / gamma((α + 1) / 2)^2 *
+        pFq(((1 - α) / 2,), (3 / 2,), z) / F_γ
+    )
+    return StableProcess(α, β, γ)
+end
+
+# HACK: temporary fix whilst tail mass is mandatory
+function levy_tail_mass(p::VarianceGammaProcess{T}, x::T) where {T<:AbstractFloat}
+    return 0.0
+end
+
+function sample(rng::AbstractRNG, p::NσMProcess, dt::Real)
+    subordinator_path = sample(rng, p.subordinator, dt)
+    jump_sizes = (
+        subordinator_path.jump_sizes .*
+        (p.μ .+ p.σ .* randn(rng, length(subordinator_path)))
+    )
+    return SampleJumps(subordinator_path.jump_times, jump_sizes)
+end
+
+function sample_marginalised(rng::AbstractRNG, p::NσMProcess, dt::Real)
+    subordinator_path = sample(rng, p.subordinator, dt)
+    jump_means = p.μ .* subordinator_path.jump_sizes
+    jump_variances = (p.σ .* subordinator_path.jump_sizes) .^ 2
+    return MarginalisedSampleJumps(subordinator_path.jump_times, jump_means, jump_variances)
 end
