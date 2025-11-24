@@ -32,8 +32,8 @@ const PreTruncatedNormalVarianceMeanProcess{T<:AbstractFloat} = NormalVarianceMe
 function sample(rng::AbstractRNG, p::PreTruncatedNormalVarianceMeanProcess, dt::Real)
     subordinator_path = sample(rng, p.subordinator, dt)
     jump_sizes = (
-        μ̃ .* subordinator_path.jump_sizes .+
-        σ̃ .* sqrt.(subordinator_path.jump_sizes) .*
+        p.μ .* subordinator_path.jump_sizes .+
+        p.σ .* sqrt.(subordinator_path.jump_sizes) .*
         randn(rng, length(subordinator_path.jump_sizes))
     )
     return SampleJumps(subordinator_path.jump_times, jump_sizes)
@@ -43,8 +43,8 @@ function sample_marginalised(
     rng::AbstractRNG, p::PreTruncatedNormalVarianceMeanProcess, dt::Real
 )
     subordinator_path = sample(rng, p.subordinator, dt)
-    jump_means = μ̃ .* subordinator_path.jump_sizes
-    jump_variances = σ̃^2 .* subordinator_path.jump_sizes
+    jump_means = p.μ .* subordinator_path.jump_sizes
+    jump_variances = p.σ^2 .* subordinator_path.jump_sizes
     return MarginalisedSampleJumps(subordinator_path.jump_times, jump_means, jump_variances)
 end
 
@@ -119,7 +119,7 @@ function cdf(d::VarianceGammaMarginal, x::Real)
 end
 
 function marginal(p::VarianceGammaProcess{T}, t::Real) where {T<:AbstractFloat}
-    return VarianceGammaMarginal(μ̃, σ̃, p.subordinator.γ, p.subordinator.λ, t)
+    return VarianceGammaMarginal(p.μ, p.σ, p.subordinator.γ, p.subordinator.λ, t)
 end
 
 ######################################
@@ -152,11 +152,6 @@ function to_stable(p::NσMProcess{T,StableSubordinator{T}}) where {T<:Real}
         pFq(((1 - α) / 2,), (3 / 2,), z) / F_γ
     )
     return StableProcess(α, β, γ)
-end
-
-# HACK: temporary fix whilst tail mass is mandatory
-function levy_tail_mass(p::VarianceGammaProcess{T}, x::T) where {T<:AbstractFloat}
-    return 0.0
 end
 
 function sample(rng::AbstractRNG, p::NσMProcess, dt::Real)

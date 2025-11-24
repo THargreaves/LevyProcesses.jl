@@ -66,21 +66,26 @@ end
     REPS = 1000
 
     α = 0.7
-    μ_W = 0.6
-    σ_W = 0.9
+    β = 0.3
+    γ = 1.2
     θ = -0.5
     h = @SVector [0.0, 1.0]
 
     rng = MersenneTwister(1234)
 
-    S = StableProcess(α, μ_W, σ_W)
-    S̄ = TruncatedLevyProcess(S; l=ϵ)
+    S = StableProcess(α, β, γ)
+    W = to_nsm(S)
+    W̄ = NσMProcess(
+        TruncatedLevyProcess(StableSubordinator(α, W.subordinator.C); l=ϵ),
+        W.μ,
+        W.σ,
+    )
     dyn = LangevinDynamics(θ)
     sde = LangevianStableDrivenSDE(S, dyn)
 
     marginals = Vector{SVector{2,Float64}}(undef, REPS)
     for r in 1:REPS
-        jumps = sample(rng, S̄, t)
+        jumps = sample(rng, W̄, t)
         x = @SVector [0.0, 0.0]
         for i in 1:length(jumps.jump_sizes)
             last_jump = i > 1 ? jumps.jump_times[i - 1] : 0.0

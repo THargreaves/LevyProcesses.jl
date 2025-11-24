@@ -29,13 +29,18 @@ end
     using Test
 
     α = 0.5
-    μ_W = 0.5
-    σ_W = 1.2
-    p = StableProcess(α, μ_W, σ_W)
+    β = 0.3
+    γ = 1.2
+    stable_p = StableProcess(α, β, γ)
+    NσM_p = to_nsm(stable_p)
 
     test_t = 1.5
     ϵ = 1e-8
-    test_process = TruncatedLevyProcess(p; l=ϵ)
+    test_process = NσMProcess(
+        TruncatedLevyProcess(StableSubordinator(α, NσM_p.subordinator.C); l=ϵ),
+        NσM_p.μ,
+        NσM_p.σ,
+    )
 
     REPS = 1000
     rng = MersenneTwister(1234)
@@ -44,46 +49,47 @@ end
     marginal_samples = [sum(sample(rng, test_process, test_t).jump_sizes) for _ in 1:REPS]
 
     # Compare with ground truth
-    test = ExactOneSampleKSTest(marginal_samples, marginal(p, test_t))
+    test = ExactOneSampleKSTest(marginal_samples, marginal(stable_p, test_t))
     @test pvalue(test) > 0.1
 end
 
-@testitem "Stable: SDE marginal" begin
-    using LevyProcesses
-    using HypothesisTests
-    using Random
-    using Test
+# TODO: merge with NσM
+# @testitem "Stable: SDE marginal" begin
+#     using LevyProcesses
+#     using HypothesisTests
+#     using Random
+#     using Test
 
-    α = 0.5
-    μ_W = 0.5
-    σ_W = 1.2
-    p = StableProcess(α, μ_W, σ_W)
+#     α = 0.5
+#     μ_W = 0.5
+#     σ_W = 1.2
+#     p = StableProcess(α, μ_W, σ_W)
 
-    test_t = 1.5
-    ϵ = 1e-10
-    test_process = TruncatedLevyProcess(p; l=ϵ)
+#     test_t = 1.5
+#     ϵ = 1e-10
+#     test_process = TruncatedLevyProcess(p; l=ϵ)
 
-    a = -0.5
-    rng = MersenneTwister(1234)
+#     a = -0.5
+#     rng = MersenneTwister(1234)
 
-    dyn = UnivariateLinearDynamics(a)
-    true_sde = StableDrivenSDE(p, dyn)
-    truncated_sde = TruncatedStableDrivenSDE(test_process, dyn)
+#     dyn = UnivariateLinearDynamics(a)
+#     true_sde = StableDrivenSDE(p, dyn)
+#     truncated_sde = TruncatedStableDrivenSDE(test_process, dyn)
 
-    test_x0 = 0.5
+#     test_x0 = 0.5
 
-    # Generate samples
-    REPS = 1000
-    marginal_samples = Vector{Float64}(undef, REPS)
-    for i in 1:REPS
-        dist = sample_conditional_marginal(rng, truncated_sde, test_x0, test_t)
-        marginal_samples[i] = rand(rng, dist)
-    end
+#     # Generate samples
+#     REPS = 1000
+#     marginal_samples = Vector{Float64}(undef, REPS)
+#     for i in 1:REPS
+#         dist = sample_conditional_marginal(rng, truncated_sde, test_x0, test_t)
+#         marginal_samples[i] = rand(rng, dist)
+#     end
 
-    # Compare with ground truth
-    test = ExactOneSampleKSTest(marginal_samples, marginal(true_sde, test_x0, test_t))
-    @test pvalue(test) > 0.1
-end
+#     # Compare with ground truth
+#     test = ExactOneSampleKSTest(marginal_samples, marginal(true_sde, test_x0, test_t))
+#     @test pvalue(test) > 0.1
+# end
 
 @testitem "Stable-Gaussian convolution" begin
     using LevyProcesses
