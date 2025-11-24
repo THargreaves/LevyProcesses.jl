@@ -131,4 +131,25 @@ end
     @test pvalue(test) > 0.1
 end
 
+@testitem "Stable to Stable-NσM conversion" begin
+    using LevyProcesses
 
+    # We just check that a full conversion cycle returns the original process and then rely
+    # on the validatiy of the Stable-NσM to Stable conversion test above.
+    α = 0.7
+    C = 0.5
+    μ_true = 0.8
+    σ_true = 1.3
+
+    S = StableSubordinator(α, C)
+    L_nsm = NσMProcess(S, μ_true, σ_true)
+
+    # Convert to Stable process
+    stable_process = to_stable(L_nsm)
+
+    # Convert back to NσM process
+    L_nsm_converted = to_nsm(stable_process; C=C)
+
+    @test L_nsm.μ ≈ L_nsm_converted.μ
+    @test L_nsm.σ ≈ L_nsm_converted.σ
+end
