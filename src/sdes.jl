@@ -5,7 +5,7 @@ using NNlib
 export LinearDynamics, LangevinDynamics
 export LevyDrivenLinearSDE
 
-export sample_conditional_marginal, conditional_marginal, NVMDrivenSDE
+export sample_conditional_marginal, conditional_marginal, NormalMixtureDrivenSDE
 
 export UnivariateLinearDynamics, StableDrivenSDE, TruncatedStableDrivenSDE
 export LangevianStableDrivenSDE, projection_marginal
@@ -39,15 +39,19 @@ struct LevyDrivenLinearSDE{P<:LevyProcess,D<:LinearDynamics,V<:AbstractVector}
     noise_scaling::V
 end
 
-#########################
-#### NVM-Driven SDEs ####
-#########################
+###############################################
+#### Normal Mixture-Driven SDEs (NVM/NsM) ####
+###############################################
 
 # TODO: generalise this to arbitrary conditionally Gaussian Levy processes
-const NVMDrivenSDE = LevyDrivenLinearSDE{P,D,T} where {P<:NormalVarianceMeanProcess,D,T}
+const NormalMixtureDrivenSDE =
+    LevyDrivenLinearSDE{P,D,T} where {P<:AbstractNormalMixtureProcess,D,T}
 
 function sample_conditional_marginal(
-    rng::AbstractRNG, sde::NVMDrivenSDE, t::Real; x0::Union{Nothing,Vector}=nothing
+    rng::AbstractRNG,
+    sde::NormalMixtureDrivenSDE,
+    t::Real;
+    x0::Union{Nothing,Vector}=nothing,
 )
     # TODO: this needs to be generalised for other cases
     subordinator_path = sample(rng, sde.driving_process.subordinator, t)
@@ -56,7 +60,7 @@ end
 
 function conditional_marginal(
     subordinator_path::SampleJumps,
-    sde::NVMDrivenSDE,
+    sde::NormalMixtureDrivenSDE,
     t::Real;
     x0::Union{Nothing,AbstractVector}=nothing,
 )
@@ -68,7 +72,7 @@ end
 
 function conditional_marginal_parameters(
     subordinator_path::SampleJumps,
-    sde::NVMDrivenSDE,
+    sde::NormalMixtureDrivenSDE,
     t::Real;
     x0::Union{Nothing,AbstractVector}=nothing,
 )
@@ -81,20 +85,20 @@ end
 
 function unscaled_conditional_marginal_parameters(
     subordinator_path::SampleJumps{T},
-    sde::NVMDrivenSDE,
+    sde::NormalMixtureDrivenSDE,
     t::Real;
     x0::Union{Nothing,AbstractVector{T}}=nothing,
 ) where {T}
     dyn = sde.linear_dynamics
     D = length(sde.noise_scaling)
+    process = sde.driving_process
 
     m = @SVector zeros(T, D)
     S = @SMatrix zeros(T, D, D)
     for (v, z) in zip(subordinator_path.jump_times, subordinator_path.jump_sizes)
         ft = exp(dyn, (t - v)) * sde.noise_scaling
-        ft_z = ft * z
-        m += ft_z
-        S += ft_z * ft'
+        m += ft * unscaled_jump_mean(process, z)
+        S += ft * ft' * unscaled_jump_variance(process, z)
     end
 
     isnothing(x0) || (m += exp(dyn, t) * x0)
@@ -124,7 +128,7 @@ end
 export conditional_marginal_parameters
 
 function conditional_marginal_parameters(
-    subordinator_paths::RaggedBatchSampleJumps{T}, sde::NVMDrivenSDE, t::Real
+    subordinator_paths::RaggedBatchSampleJumps{T}, sde::NormalMixtureDrivenSDE, t::Real
 ) where {T}
     μs, Σs = calc_jump_contributions(
         subordinator_paths.jump_times, subordinator_paths.jump_sizes, sde, t
@@ -143,7 +147,7 @@ function conditional_marginal_parameters(
 end
 
 function calc_jump_contributions(
-    jump_times::CuVector, jump_sizes::CuVector, sde::NVMDrivenSDE, t::Real
+    jump_times::CuVector, jump_sizes::CuVector, sde::NormalMixtureDrivenSDE, t::Real
 )
     dyn = sde.linear_dynamics
     μ_W, σ_W = sde.driving_process.μ, sde.driving_process.σ
@@ -152,16 +156,29 @@ function calc_jump_contributions(
     expAs = compute_expAs(dyn, t .- jump_times)
     expA_h = NNlib.batched_vec(expAs, cu(sde.noise_scaling))
     μs = μ_W * expA_h .* jump_sizes'
+
+    # Compute variance scaling based on process type
+    variance_scaling = compute_variance_scaling(sde.driving_process, jump_sizes)
     Σs = (
         σ_W^2 *
         NNlib.batched_mul(reshape(expA_h, 2, 1, tot_N), reshape(expA_h, 1, 2, tot_N)) .*
-        reshape(jump_sizes, 1, 1, tot_N)
+        variance_scaling
     )
     return μs, Σs
 end
 
+# Variance scaling for NVM: linear in z
+function compute_variance_scaling(::NormalVarianceMeanProcess, jump_sizes::CuVector)
+    return reshape(jump_sizes, 1, 1, length(jump_sizes))
+end
+
+# Variance scaling for NsM: quadratic in z
+function compute_variance_scaling(::NσMProcess, jump_sizes::CuVector)
+    return reshape(jump_sizes .^ 2, 1, 1, length(jump_sizes))
+end
+
 function conditional_marginal_parameters(
-    subordinator_paths::RegularBatchSampleJumps, sde::NVMDrivenSDE, t::Real
+    subordinator_paths::RegularBatchSampleJumps, sde::NormalMixtureDrivenSDE, t::Real
 )
     # Flatten jumps
     jump_sizes_flat = reshape(
@@ -184,18 +201,22 @@ function conditional_marginal_parameters(
 end
 
 function unscaled_conditional_marginal_parameters(
-    subordinator_paths::RaggedBatchSampleJumps{T}, sde::NVMDrivenSDE, t::Real
+    subordinator_paths::RaggedBatchSampleJumps{T}, sde::NormalMixtureDrivenSDE, t::Real
 ) where {T}
     dyn = sde.linear_dynamics
+    process = sde.driving_process
 
     expAs = compute_expAs(dyn, t .- subordinator_paths.jump_times)
     expA_h = NNlib.batched_vec(expAs, cu(sde.noise_scaling))
     ms = expA_h .* subordinator_paths.jump_sizes'
+
+    # Compute variance scaling based on process type
+    variance_scaling = compute_variance_scaling(process, subordinator_paths.jump_sizes)
     Ss = (
         NNlib.batched_mul(
             reshape(expA_h, 2, 1, subordinator_paths.tot_N),
             reshape(expA_h, 1, 2, subordinator_paths.tot_N),
-        ) .* reshape(subordinator_paths.jump_sizes, 1, 1, subordinator_paths.tot_N)
+        ) .* variance_scaling
     )
 
     N = length(subordinator_paths.offsets)
@@ -211,9 +232,10 @@ function unscaled_conditional_marginal_parameters(
 end
 
 function unscaled_conditional_marginal_parameters(
-    subordinator_paths::RegularBatchSampleJumps{T}, sde::NVMDrivenSDE, t::Real
+    subordinator_paths::RegularBatchSampleJumps{T}, sde::NormalMixtureDrivenSDE, t::Real
 ) where {T}
     dyn = sde.linear_dynamics
+    process = sde.driving_process
 
     # Flatten jumps
     jump_sizes_flat = reshape(
@@ -227,9 +249,12 @@ function unscaled_conditional_marginal_parameters(
     expAs = compute_expAs(dyn, t .- jump_times_flat)
     expA_h = NNlib.batched_vec(expAs, cu(sde.noise_scaling))
     ms = expA_h .* jump_sizes_flat'
+
+    # Compute variance scaling based on process type
+    variance_scaling = compute_variance_scaling(process, jump_sizes_flat)
     Ss = (
         NNlib.batched_mul(reshape(expA_h, 2, 1, tot_N), reshape(expA_h, 1, 2, tot_N)) .*
-        reshape(jump_sizes_flat, 1, 1, tot_N)
+        variance_scaling
     )
 
     # Reshape and reduce

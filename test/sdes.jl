@@ -76,9 +76,7 @@ end
     S = StableProcess(α, β, γ)
     W = to_nsm(S)
     W̄ = NσMProcess(
-        TruncatedLevyProcess(StableSubordinator(α, W.subordinator.C); l=ϵ),
-        W.μ,
-        W.σ,
+        TruncatedLevyProcess(StableSubordinator(α, W.subordinator.C); l=ϵ), W.μ, W.σ
     )
     dyn = LangevinDynamics(θ)
     sde = LangevianStableDrivenSDE(S, dyn)

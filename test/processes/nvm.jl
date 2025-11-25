@@ -112,7 +112,7 @@ end
     t = 1.2
     ϵ = 1e-7
 
-    REPS = 1000
+    REPS = 5000
     rng = MersenneTwister(1234)
 
     S = StableSubordinator(α, C)

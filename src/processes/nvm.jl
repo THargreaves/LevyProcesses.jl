@@ -4,11 +4,15 @@ import SpecialFunctions: gamma, besselk
 import HypergeometricFunctions: pFq
 
 export NormalVarianceMeanProcess, VarianceGammaProcess, NσMProcess
+export AbstractNormalMixtureProcess
 export to_stable
+
+abstract type AbstractNormalMixtureProcess{T<:Real} <: LevyProcess{T} end
 
 # HACK: should inherit from Subordinator, but a truncated subordinator does not know that
 # it is a subordinator
-struct NormalVarianceMeanProcess{T<:Real,P<:LevyProcess{T}} <: LevyProcess{T}
+struct NormalVarianceMeanProcess{T<:Real,P<:LevyProcess{T}} <:
+       AbstractNormalMixtureProcess{T}
     subordinator::P
     μ::T
     σ::T
@@ -29,22 +33,22 @@ const PreTruncatedNormalVarianceMeanProcess{T<:AbstractFloat} = NormalVarianceMe
     T,TruncatedLevyProcess{T,GammaProcess{T}}
 }
 
-function sample(rng::AbstractRNG, p::PreTruncatedNormalVarianceMeanProcess, dt::Real)
+function sample(rng::AbstractRNG, p::AbstractNormalMixtureProcess, dt::Real)
     subordinator_path = sample(rng, p.subordinator, dt)
-    jump_sizes = (
-        p.μ .* subordinator_path.jump_sizes .+
-        p.σ .* sqrt.(subordinator_path.jump_sizes) .*
-        randn(rng, length(subordinator_path.jump_sizes))
-    )
+    jump_sizes = [
+        p.μ * unscaled_jump_mean(p, z) +
+        p.σ * sqrt(unscaled_jump_variance(p, z)) * randn(rng) for
+        z in subordinator_path.jump_sizes
+    ]
     return SampleJumps(subordinator_path.jump_times, jump_sizes)
 end
 
-function sample_marginalised(
-    rng::AbstractRNG, p::PreTruncatedNormalVarianceMeanProcess, dt::Real
-)
+function sample_marginalised(rng::AbstractRNG, p::AbstractNormalMixtureProcess, dt::Real)
     subordinator_path = sample(rng, p.subordinator, dt)
-    jump_means = p.μ .* subordinator_path.jump_sizes
-    jump_variances = p.σ^2 .* subordinator_path.jump_sizes
+    jump_means = [p.μ * unscaled_jump_mean(p, z) for z in subordinator_path.jump_sizes]
+    jump_variances = [
+        p.σ^2 * unscaled_jump_variance(p, z) for z in subordinator_path.jump_sizes
+    ]
     return MarginalisedSampleJumps(subordinator_path.jump_times, jump_means, jump_variances)
 end
 
@@ -126,11 +130,29 @@ end
 #### Normal Scale Mixture Process ####
 ######################################
 
-struct NσMProcess{T<:Real,P<:LevyProcess{T}} <: LevyProcess{T}
+struct NσMProcess{T<:Real,P<:LevyProcess{T}} <: AbstractNormalMixtureProcess{T}
     subordinator::P
     μ::T
     σ::T
 end
+
+################################################
+#### Jump parameter computation methods #######
+################################################
+
+"""
+Compute the unscaled mean contribution from a subordinator jump.
+For both NVM and NsM, this is simply z.
+"""
+unscaled_jump_mean(::AbstractNormalMixtureProcess, z) = z
+
+"""
+Compute the unscaled variance contribution from a subordinator jump.
+For NVM: variance scales linearly with z
+For NsM: variance scales quadratically with z^2
+"""
+unscaled_jump_variance(::NormalVarianceMeanProcess, z) = z
+unscaled_jump_variance(::NσMProcess, z) = z^2
 
 # Conversion of Stable-NσM process to StableProcess using series representation
 function to_stable(p::NσMProcess{T,StableSubordinator{T}}) where {T<:Real}
@@ -152,20 +174,4 @@ function to_stable(p::NσMProcess{T,StableSubordinator{T}}) where {T<:Real}
         pFq(((1 - α) / 2,), (3 / 2,), z) / F_γ
     )
     return StableProcess(α, β, γ)
-end
-
-function sample(rng::AbstractRNG, p::NσMProcess, dt::Real)
-    subordinator_path = sample(rng, p.subordinator, dt)
-    jump_sizes = (
-        subordinator_path.jump_sizes .*
-        (p.μ .+ p.σ .* randn(rng, length(subordinator_path)))
-    )
-    return SampleJumps(subordinator_path.jump_times, jump_sizes)
-end
-
-function sample_marginalised(rng::AbstractRNG, p::NσMProcess, dt::Real)
-    subordinator_path = sample(rng, p.subordinator, dt)
-    jump_means = p.μ .* subordinator_path.jump_sizes
-    jump_variances = (p.σ .* subordinator_path.jump_sizes) .^ 2
-    return MarginalisedSampleJumps(subordinator_path.jump_times, jump_means, jump_variances)
 end
