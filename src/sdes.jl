@@ -339,21 +339,31 @@ function projection_marginal(sde::LangevianStableDrivenSDE, t::Real, u::Abstract
     # Normalise direction vector
     u = u / norm(u)
 
-    E = exp(sde.dynamics.θ * t)
-    A = u[1] / sde.dynamics.θ + u[2]
-    B = -u[1] / sde.dynamics.θ
+    θ = sde.dynamics.θ
+    p = sde.driving_process
+
+    E = exp(θ * t)
+    A = u[1] / θ + u[2]
+    B = -u[1] / θ
     c = B / A
 
-    α_drive, β_drive, σ_drive = (
-        sde.driving_process.α, sde.driving_process.β, sde.driving_process.σ
-    )
+    α_drive, β_drive, σ_drive, μ_drive = (p.α, p.β, p.σ, p.μ)
 
     α_proj = α_drive
     # TODO: add shortcut for case when c ∉ (1, E)
     I = _stable_integral(E, c, α_drive)
     β_proj = β_drive * (sign(A) * _signed_stable_integral(E, c, α_drive)) / I
     σ_proj = σ_drive * abs(A) * (I / sde.dynamics.θ)^(1 / α_drive)
-    μ_proj = 0.0  # TODO: generalise this
+
+    # Compute impact of drift
+    μ_proj = if μ_drive == 0.0
+        0.0
+    else
+        @warn "Drift component in projection marginal is untested."
+        k1 = (E - 1 - θ * t) / (θ^2)
+        k2 = (E - 1) / θ
+        μ_drive * (u[1] * k1 + u[2] * k2)
+    end
 
     return Stable(α_proj, β_proj, σ_proj, μ_proj)
 end

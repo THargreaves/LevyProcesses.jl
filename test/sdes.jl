@@ -52,6 +52,7 @@ using LevyProcesses
     @test cov(final_states) ≈ cond_marginal.Σ rtol = 1e-2
 end
 
+# TODO: add unit test for non-centred case
 @testitem "Langevian-Stable SDE projection marginals" begin
     using LevyProcesses
     using Random
