@@ -52,9 +52,7 @@ const TruncatedStableProcess{T} = TruncatedLevyProcess{T,StableProcess{T}}
 
 """Sample physical jumps satisfying `lower ≤ abs(x) ≤ upper`; no drift is added."""
 function sample(rng::AbstractRNG, p::TruncatedStableProcess{T}, dt::Real) where {T}
-    isfinite(dt) && dt >= 0 || throw(ArgumentError("time must be finite and non-negative"))
-    isfinite(p.mass) || throw(ArgumentError("physical jump sampling requires a positive lower cutoff"))
-    N = rand(rng, Poisson(dt * p.mass))
+    N = rand(rng, Poisson(_retained_jump_intensity(p, dt)))
     times = T(dt) .* rand(rng, T, N)
     Γs = p.upper_tail_mass .+ (1 .- rand(rng, T, N)) .* p.mass
     sizes = (p.process.σ^p.process.α * p.process.C_α ./ Γs) .^ (1 / p.process.α)
