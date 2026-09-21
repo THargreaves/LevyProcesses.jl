@@ -10,78 +10,64 @@ export StableProcess, TruncatedStableProcess, sample_shot_noise, sample_marginal
 export StableGaussianConvolution
 export to_nsm
 
-# TODO: add alternative constructor
+"""Stable Lévy process with the S1 zero-location marginal; `0 < α < 2`, `α ≠ 1`."""
 struct StableProcess{T<:Real} <: LevyProcess{T}
     α::T
     β::T
     σ::T
-    # Cached values
     C_α::T
 end
 function StableProcess(α::Real, β::Real, σ::Real)
+    isfinite(α) && 0 < α < 2 && α != 1 ||
+        throw(ArgumentError("α must lie in (0, 2), excluding 1"))
+    isfinite(β) && abs(β) <= 1 || throw(ArgumentError("β must lie in [-1, 1]"))
+    isfinite(σ) && σ > 0 || throw(ArgumentError("σ must be finite and positive"))
+    α, β, σ = promote(float(α), float(β), float(σ))
     C_α = (1 - α) / (gamma(2 - α) * cos(π * α / 2))
-
-    return StableProcess(α, β, σ, C_α)
+    return StableProcess(α, β, σ, oftype(α, C_α))
 end
 
 function levy_density(p::StableProcess, x::Real)
-    return (p.σ^p.α * p.C_α * (1 + p.β * sign(x)) * p.α * abs(x)^(-p.α - 1))
+    iszero(x) && return zero(p.α)
+    weight = 1 + p.β * sign(x)
+    iszero(weight) && return zero(p.α)
+    return p.σ^p.α * p.C_α * weight * p.α / 2 * abs(x)^(-p.α - 1)
 end
+log_levy_density(p::StableProcess, x::Real) = log(levy_density(p, x))
 
 function levy_tail_mass(p::StableProcess, x::Real)
-    return p.σ^p.α * p.C_α * 2 * x^(-p.α)
+    x >= 0 || throw(DomainError(x, "absolute jump cutoff must be non-negative"))
+    return p.σ^p.α * p.C_α * x^(-p.α)
 end
 
+# Canonical truncation h(x) = x 1{|x| ≤ 1}.
+levy_drift(p::StableProcess) = p.α * p.σ^p.α * p.C_α * p.β / (1 - p.α)
+
 function marginal(p::StableProcess, t::Real)
+    isfinite(t) && t > 0 || throw(ArgumentError("time must be finite and positive"))
     return Stable(p.α, p.β, p.σ * t^(1 / p.α), 0.0)
 end
 
 const TruncatedStableProcess{T} = TruncatedLevyProcess{T,StableProcess{T}}
 
-# TODO: combine with regular LTM sampler
-function sample_shot_noise(
-    rng::AbstractRNG, p::TruncatedStableProcess{T}, dt::Real
-) where {T}
-    N = rand(rng, Poisson(dt * p.lower^(-p.process.α)))
-
-    Γs = rand(rng, T, N)
-    Γs *= p.lower^(-p.process.α)
-    jump_sizes = Γs .^ (-1 / p.process.α)
-
-    jump_times = rand(rng, Uniform(0, dt), length(jump_sizes))
-    return SampleJumps(jump_times, jump_sizes)
+"""Sample physical jumps satisfying `lower ≤ abs(x) ≤ upper`; no drift is added."""
+function sample(rng::AbstractRNG, p::TruncatedStableProcess{T}, dt::Real) where {T}
+    isfinite(dt) && dt >= 0 || throw(ArgumentError("time must be finite and non-negative"))
+    isfinite(p.mass) || throw(ArgumentError("physical jump sampling requires a positive lower cutoff"))
+    N = rand(rng, Poisson(dt * p.mass))
+    times = T(dt) .* rand(rng, T, N)
+    Γs = p.upper_tail_mass .+ (1 .- rand(rng, T, N)) .* p.mass
+    sizes = (p.process.σ^p.process.α * p.process.C_α ./ Γs) .^ (1 / p.process.α)
+    signs = ifelse.(rand(rng, T, N) .< (1 + p.process.β) / 2, one(T), -one(T))
+    return SampleJumps(times, T.(sizes .* signs))
 end
 
-# TODO: technically this is a different kind of truncation
-function sample(rng::AbstractRNG, p::TruncatedStableProcess, dt::Real)
-    shot_noise_path = sample_shot_noise(rng, p, dt)
-
-    N = length(shot_noise_path.jump_sizes)
-    μ_W = p.process.μ_W
-    σ_W = p.process.σ_W
-
-    jump_sizes = shot_noise_path.jump_sizes .* rand(rng, Normal(μ_W, σ_W), N)
-    # jump_times = rand(Uniform(0, dt), N)
-    # Generate sorted jump times
-    jump_times = rand(rng, Exponential(1.0), N)
-    tot = 0.0
-    # Compute cummulative sum
-    for i in 1:N
-        tot += jump_times[i]
-        jump_times[i] = tot
-    end
-    tot += rand(rng, Exponential(1.0))
-    jump_times .= dt .* jump_times ./ tot
-    return SampleJumps(jump_times, jump_sizes)
+function sample_shot_noise(rng::AbstractRNG, p::TruncatedStableProcess, dt::Real)
+    throw(ArgumentError("Gaussian-mark shot noise requires an explicit NσMProcess; use to_nsm where supported"))
 end
 
 function sample_marginalised(rng::AbstractRNG, p::TruncatedStableProcess, dt::Real)
-    shot_noise_path = sample_shot_noise(rng, p, dt)
-
-    jump_means = shot_noise_path.jump_sizes .* p.process.μ_W
-    jump_variances = (shot_noise_path.jump_sizes .* p.process.σ_W) .^ 2
-
-    return MarginalisedSampleJumps(shot_noise_path.jump_times, jump_means, jump_variances)
+    throw(ArgumentError("Gaussian-mark marginalisation requires an explicit NσMProcess; use to_nsm where supported"))
 end
 
 #####################################
@@ -211,36 +197,18 @@ function _sigma_from_gamma(γ::Real, α::Real, λ::Real)
 end
 
 """
-    to_nsm(p::StableProcess; C=p.α) -> NσMProcess
+    to_nsm(p::StableProcess; C=p.α)
 
-Convert a StableProcess to an equivalent NσMProcess with Gaussian marks.
-
-The conversion uses the inverse of the series representation relationship for stable
-distributions (Samorodnitsky and Taqqu, 1994 [1.4.10]) with Gaussian marks.
-
-Given a stable process with parameters (α, β, γ), this function computes the Gaussian mark 
-parameters (μ, σ) such that an NσM process subordinated by a StableSubordinator with the
-same α and scale parameter C produces an equivalent stable marginal distribution.
-
-The ratio λ = μ/σ is determined by solving for β numerically using a bisection method,
-leveraging the monotonic relationship between β and λ. The pair (μ, σ) is then recovered
-from λ and γ.
-
-The subordinator levy measure parameter `C` can be specified; by default C = α
-is used which results in a scaling factor of 1 between the theoretical and
-implementation parameters.
-
-# Arguments
-- `p::StableProcess`: The stable process to convert
-- `C::Real`: The levy measure parameter for the subordinator (default: p.α)
-
-# Returns
-- `NσMProcess`: An equivalent Normal Scale Mixture process with Gaussian marks
+Equivalent Gaussian-mark scale mixture for `α < 1` and `abs(β) < 1`.
+`C > 0` sets the stable subordinator's Lévy density coefficient.
 """
 function to_nsm(p::StableProcess; C=p.α)
+    p.α < 1 || throw(ArgumentError("to_nsm requires α < 1 for a stable subordinator"))
+    abs(p.β) < 1 || throw(ArgumentError("to_nsm requires abs(β) < 1 for non-degenerate Gaussian marks"))
+    isfinite(C) && C > 0 || throw(ArgumentError("C must be finite and positive"))
     α = p.α
     β = p.β
-    γ = p.σ  # call this γ for clarity    
+    γ = p.σ
 
     # Inverse formulas to get μ̃, σ̃ (for the scaled marks)
     λ = _lambda_from_beta(β, α)
