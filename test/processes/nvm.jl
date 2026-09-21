@@ -99,36 +99,21 @@ end
 end
 
 @testitem "Stable-NσM to Stable conversion" begin
-    using LevyProcesses
-    using Random
-    using Test
-    using HypothesisTests
-    using StableDistributions
+    using Distributions
+    using QuadGK
+    using SpecialFunctions
 
-    α = 0.7
-    C = 0.5
-    μ = 0.8
-    σ = 1.3
-    t = 1.2
-    ϵ = 1e-7
-
-    REPS = 5000
-    rng = MersenneTwister(1234)
-
-    S = StableSubordinator(α, C)
-    L = NσMProcess(S, μ, σ)
-
-    S̄ = TruncatedLevyProcess(S; l=ϵ)
-    L̄ = NσMProcess(S̄, μ, σ)
-
-    stable_process = to_stable(L)
-
-    # Generate samples from NσM process
-    samples = [sum(sample(rng, L̄, t).jump_sizes) for _ in 1:REPS]
-
-    # Compare with Stable process marginal distribution
-    test = ExactOneSampleKSTest(samples, marginal(stable_process, t))
-    @test pvalue(test) > 0.1
+    α, C, μ, σ = 0.7, 0.5, 0.8, 1.3
+    marks = Normal(μ, σ)
+    positive = quadgk(w -> w^α * pdf(marks, w), 0, Inf)[1]
+    negative = quadgk(w -> w^α * pdf(marks, -w), 0, Inf)[1]
+    C_α = 1 / (gamma(1 - α) * cospi(α / 2))
+    p = to_stable(NσMProcess(StableSubordinator(α, C), μ, σ))
+    @test p.σ^α ≈ (C / α) * (positive + negative) / C_α
+    @test p.β ≈ (positive - negative) / (positive + negative)
+    one_sided = to_stable(NσMProcess(StableSubordinator(α, C), -2, 0))
+    @test one_sided.β == -1
+    @test one_sided.σ^α ≈ (C / α) * 2^α / C_α
 end
 
 @testitem "Stable to Stable-NσM conversion" begin
