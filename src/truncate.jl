@@ -1,7 +1,7 @@
 """
     TruncatedLevyProcess(p, l, u)
 
-Construct a trunctated Lévy process by restricting the absolute size of jumps.
+Construct a truncated Lévy process by restricting the absolute size of jumps.
 
 # Arguments
 - `p::LevyProcess`: The original Lévy process
@@ -29,31 +29,28 @@ end
 
 # TODO: would it be better to use `nothing` for no bounds so that we can dispatch on this?
 function TruncatedLevyProcess(
-    p::LevyProcess, l::Real, u::Real; approximate_residual::Bool=false
-)
+    p::LevyProcess{T}, l::Real, u::Real; approximate_residual::Bool=false
+) where {T}
+    approximate_residual && throw(ArgumentError("residual approximation is not implemented; use explicit retained jumps"))
+    l, u = T(l), T(u)
     l < u || throw(ArgumentError("the lower bound must be less than the upper bound."))
     l >= 0 || throw(ArgumentError("the lower bound must be non-negative."))
     u > 0 || throw(ArgumentError("the upper bound must be positive."))
     # TODO: need a fallback for these, and only run when required
     lower_tail_mass = levy_tail_mass(p, l)
-    upper_tail_mass = levy_tail_mass(p, u)
+    upper_tail_mass = isinf(u) ? zero(lower_tail_mass) : levy_tail_mass(p, u)
     mass = lower_tail_mass - upper_tail_mass
     # Update drift and variance
     drift = levy_drift(p)
     variance = levy_variance(p)
-    if approximate_residual
-        residual_process = TruncatedLevyProcess(p, 0.0, l)
-        drift += mean(residual_process)
-        variance += var(residual_process)
-    end
     return TruncatedLevyProcess(
         p, l, u, drift, variance, lower_tail_mass, upper_tail_mass, mass
     )
 end
 
 # TruncatedLevyProcess(p::LevyProcess, l::Real, u::Real) = TruncatedLevyProcess(p, Float64(l), Float64(u))
-function TruncatedLevyProcess(p::LevyProcess{T}; l=0.0, u=Inf) where {T}
-    TruncatedLevyProcess(p, T(l), T(u))
+function TruncatedLevyProcess(p::LevyProcess{T}; l=0.0, u=Inf, approximate_residual::Bool=false) where {T}
+    return TruncatedLevyProcess(p, T(l), T(u); approximate_residual)
 end
 
 ### Support
@@ -63,23 +60,24 @@ isupperbounded(p::TruncatedLevyProcess) = isupperbounded(p.process) || p.upper <
 ### Evalutation
 
 levy_drift(p::TruncatedLevyProcess) = p.drift
-levy_variance(p::TruncatedLevyProcess) = p.dispersion
+levy_variance(p::TruncatedLevyProcess) = p.variance
 
 function levy_density(p::TruncatedLevyProcess, x::T) where {T<:Real}
-    p.lower <= x <= p.upper ? levy_density(p.process, x) : zero(T)
+    return isfinite(x) && p.lower < abs(x) <= p.upper ? levy_density(p.process, x) : zero(T)
 end
 
 function log_levy_density(p::TruncatedLevyProcess, x::T) where {T<:Real}
-    p.lower <= x <= p.upper ? log_levy_density(p.process, x) : -T(Inf)
+    return isfinite(x) && p.lower < abs(x) <= p.upper ? log_levy_density(p.process, x) : -Inf
 end
 
 function levy_tail_mass(p::TruncatedLevyProcess, x::T) where {T<:Real}
-    if x < p.lower
+    x >= 0 || throw(ArgumentError("absolute jump threshold must be nonnegative"))
+    if x <= p.lower
         return p.mass
     elseif x < p.upper
         return levy_tail_mass(p.process, x) - p.upper_tail_mass
     else
-        return 0.0
+        return zero(p.mass)
     end
 end
 

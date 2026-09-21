@@ -20,14 +20,19 @@ end
 function Base.exp(dyn::LangevinDynamics, dt::Real)
     θ = dyn.θ
     exp_val = exp(θ * dt)
-    return @SMatrix [1.0 (exp_val - 1)/θ; 0 exp_val]
+    response = iszero(θ) ? dt : expm1(θ * dt) / θ
+    return @SMatrix [one(exp_val) response; zero(exp_val) exp_val]
 end
 
 function compute_expAs(dyn::LangevinDynamics, dt::CuVector{T}) where {T<:Number}
     expAs = CuArray{T}(undef, 2, 2, length(dt))
     exp_vals = exp.(T(dyn.θ) * dt)
     expAs[1, 1, :] .= T(1.0)
-    expAs[1, 2, :] .= (exp_vals .- T(1.0)) ./ dyn.θ
+    if iszero(dyn.θ)
+        expAs[1, 2, :] .= dt
+    else
+        expAs[1, 2, :] .= expm1.(T(dyn.θ) .* dt) ./ T(dyn.θ)
+    end
     expAs[2, 1, :] .= T(0.0)
     expAs[2, 2, :] .= exp_vals
     return expAs
@@ -295,29 +300,18 @@ end
 function conditional_marginal(
     shot_noise_path::SampleJumps, sde::TruncatedStableDrivenSDE, x0::Float64, t::Real
 )
-    dyn = sde.linear_dynamics
-    p = sde.driving_process.process
-    μ_W, σ_W = p.μ_W, p.σ_W
-
-    μ = exp(dyn.a * t) * x0
-    σ2 = 0.0
-    for (v, z) in zip(shot_noise_path.jump_times, shot_noise_path.jump_sizes)
-        ft = exp(dyn.a * (t - v))
-        μ += ft * μ_W * z
-        σ2 += ft * ft' * σ_W^2 * z^2
-    end
-
-    return Normal(μ, sqrt(σ2))
+    throw(ArgumentError("physical stable jumps are not Gaussian mixture marks; use NormalMixtureDrivenSDE with an explicit latent process"))
 end
 
-function marginal(sde::StableDrivenSDE, x0::Float64, t::Real)
+function marginal(sde::StableDrivenSDE, x0::Real, t::Real)
     dyn = sde.linear_dynamics
     p = sde.driving_process
 
+    isfinite(t) && t > 0 || throw(ArgumentError("t must be finite and positive"))
     σ_new = if dyn.a == 0
-        p.σ * t^p.α
+        p.σ * t^(1 / p.α)
     else
-        p.σ * ((1 - exp(dyn.a * p.α * t)) / (-dyn.a * p.α))^(1 / p.α)
+        p.σ * (expm1(dyn.a * p.α * t) / (dyn.a * p.α))^(1 / p.α)
     end
     μ_new = x0 * exp(dyn.a * t)
 
@@ -333,98 +327,27 @@ struct LangevianStableDrivenSDE{P<:StableProcess,D<:LangevinDynamics}
     dynamics::D
 end
 
+"""
+    projection_marginal(sde, t, u)
+
+Stable marginal along the unit direction `u / norm(u)`, from a zero initial state.
+"""
 function projection_marginal(sde::LangevianStableDrivenSDE, t::Real, u::AbstractVector)
-    length(u) != 2 && throw(ArgumentError("Projection vector u must be of length 2."))
-
-    # Normalise direction vector
+    length(u) == 2 || throw(ArgumentError("projection vector must have length 2"))
+    all(isfinite, u) && norm(u) > 0 || throw(ArgumentError("projection direction must be finite and nonzero"))
+    isfinite(t) && t > 0 || throw(ArgumentError("t must be finite and positive"))
     u = u / norm(u)
-
     θ = sde.dynamics.θ
     p = sde.driving_process
-
-    E = exp(θ * t)
-    A = u[1] / θ + u[2]
-    B = -u[1] / θ
-    c = B / A
-
-    α_drive, β_drive, σ_drive, μ_drive = (p.α, p.β, p.σ, p.μ)
-
-    α_proj = α_drive
-    # TODO: add shortcut for case when c ∉ (1, E)
-    I = _stable_integral(E, c, α_drive)
-    β_proj = β_drive * (sign(A) * _signed_stable_integral(E, c, α_drive)) / I
-    σ_proj = σ_drive * abs(A) * (I / sde.dynamics.θ)^(1 / α_drive)
-
-    # Compute impact of drift
-    μ_proj = if μ_drive == 0.0
-        0.0
-    else
-        @warn "Drift component in projection marginal is untested."
-        k1 = (E - 1 - θ * t) / (θ^2)
-        k2 = (E - 1) / θ
-        μ_drive * (u[1] * k1 + u[2] * k2)
+    response(s) = u[1] * (iszero(θ) ? s : expm1(θ * s) / θ) + u[2] * exp(θ * s)
+    # Split at a response zero to resolve the fractional-power cusp.
+    knots = [zero(float(t)), float(t)]
+    if response(0) * response(t) < 0
+        push!(knots, find_zero(response, (zero(t), t), Bisection()))
+        sort!(knots)
     end
-
-    return Stable(α_proj, β_proj, σ_proj, μ_proj)
-end
-
-"""
-Computes the integral from z = 1 to t of sign(z + c) * |z + c|^a / z dz
-"""
-function _signed_stable_integral(t::Float64, c::Float64, α::Float64)
-    # TODO: this is wrong if t < 0
-    c == 0.0 && return (t^α - 1.0) / α
-
-    u1 = (1.0 + c) / c
-    ut = (t + c) / c
-
-    return sign(c) * abs(c)^α * (_signed_F(ut, α) - _signed_F(u1, α))
-end
-
-function _signed_F(u::Float64, α::Float64)
-    u == 0.0 && return 0.0
-
-    I = if u > 0.0
-        real(
-            -u^(α + 1) / (α + 1) *
-            pFq((1.0 + 0.0im, α + 1.0 + 0.0im), (α + 2.0 + 0.0im,), u + 0.0im),
-        )
-    else
-        -real(
-            (-u)^(α + 1) / (α + 1) *
-            pFq((1.0 + 0.0im, α + 1.0 + 0.0im), (α + 2.0 + 0.0im,), u + 0.0im),
-        )
-    end
-
-    return I
-end
-
-"""
-Computes the integral from z = 1 to t of |z + c|^a / z dz
-"""
-function _stable_integral(t::Float64, c::Float64, α::Float64)
-    c == 0.0 && return (t^α - 1.0) / α
-
-    u1 = (1.0 + c) / c
-    ut = (t + c) / c
-
-    return abs(c)^α * (_F(ut, α) - _F(u1, α))
-end
-
-function _F(u::Float64, α::Float64)
-    u == 0.0 && return 0.0
-
-    I = if u > 0.0
-        real(
-            -u^(α + 1) / (α + 1) *
-            pFq((1.0 + 0.0im, α + 1.0 + 0.0im), (α + 2.0 + 0.0im,), u + 0.0im),
-        )
-    else
-        real(
-            (-u)^(α + 1) / (α + 1) *
-            pFq((1.0 + 0.0im, α + 1.0 + 0.0im), (α + 2.0 + 0.0im,), u + 0.0im),
-        )
-    end
-
-    return I
+    absolute = quadgk(s -> abs(response(s))^p.α, knots...)[1]
+    signed = quadgk(s -> sign(response(s)) * abs(response(s))^p.α, knots...)[1]
+    β = clamp(p.β * signed / absolute, -one(p.β), one(p.β))
+    return Stable(p.α, β, p.σ * absolute^(1 / p.α), zero(p.σ))
 end

@@ -6,7 +6,7 @@ using SpecialFunctions: SpecialFunctions
 import StatsBase: sample
 using StaticArrays
 
-export LevyProcess, Subordinator, TruncatedLevyProcess, TruncatedSubordinator, SampleJumps
+export LevyProcess, TruncatedLevyProcess, SampleJumps
 export levy_density, log_levy_density, levy_drift, levy_tail_mass, inverse_levy_tail_mass
 export marginal
 
@@ -27,6 +27,12 @@ function log_levy_density(p::LevyProcess, x::Real)
     @warn "log_levy_density not implemented for $(typeof(p)), using log(levy_density)"
     return log(levy_density(p, x))
 end
+"""
+    levy_drift(p)
+
+Drift in the Lévy–Khintchine convention `h(x) = x * (abs(x) <= 1)`.
+This is not generally the deterministic drift of an uncompensated jump sum.
+"""
 levy_drift(p::LevyProcess{T}) where {T} = zero(T)
 levy_variance(p::LevyProcess{T}) where {T} = zero(T)
 
@@ -35,6 +41,11 @@ include("truncate.jl")
 struct SampleJumps{T<:Real}
     jump_times::Vector{T}
     jump_sizes::Vector{T}
+
+    function SampleJumps(times::Vector{T}, sizes::Vector{T}) where {T<:Real}
+        length(times) == length(sizes) || throw(DimensionMismatch("jump times and sizes must have equal lengths"))
+        return new{T}(times, sizes)
+    end
 end
 
 function Base.length(s::SampleJumps)
@@ -57,33 +68,43 @@ struct MarginalisedSampleJumps{T<:Real}
     jump_variances::Vector{T}
 end
 
-function unnormalised_sample_jumps_density(
-    p::TruncatedLevyProcess, dt::Real, path::SampleJumps
+"""
+    log_unnormalised_sample_jumps_density(p, dt, path; sorted=false)
+
+Retained-path log density without the Poisson compensator. The reference measure
+uses a count and labelled time/mark pairs; `sorted=true` uses ordered times instead.
+"""
+function log_unnormalised_sample_jumps_density(
+    p::TruncatedLevyProcess, dt::Real, path::SampleJumps; sorted::Bool=false
 )
+    isfinite(dt) && dt >= 0 || throw(ArgumentError("dt must be finite and nonnegative"))
+    isfinite(p.mass) && p.mass >= 0 || throw(ArgumentError("path density requires finite retained intensity"))
     N = length(path.jump_sizes)
-    return (prod(levy_density(p.process, path.jump_sizes)) * 1 / dt^N * 1 / factorial(N))
-end
-function normalised_sample_jumps_density(
-    p::TruncatedLevyProcess, dt::Real, path::SampleJumps
-)
-    unnormalised_density = unnormalised_sample_jumps_density(p, dt, path)
-    return unnormalised_density * exp(-dt * p.mass)
+    length(path.jump_times) == N || throw(DimensionMismatch("jump times and sizes must have equal lengths"))
+    dt == 0 && N > 0 && return -Inf
+    all(t -> isfinite(t) && 0 <= t <= dt, path.jump_times) || return -Inf
+    sorted && !issorted(path.jump_times) && return -Inf
+    value = sum(x -> log_levy_density(p, x), path.jump_sizes; init=zero(p.mass))
+    return sorted ? value : value - SpecialFunctions.logfactorial(N)
 end
 
-function log_unnormalised_sample_jumps_density(
-    p::TruncatedLevyProcess, dt::Real, path::SampleJumps
-)
-    N = length(path.jump_sizes)
-    return (
-        sum(log_levy_density(p.process, path.jump_sizes)) - N * log(dt) -
-        SpecialFunctions.logfactorial(N)
-    )
-end
+"""
+    log_normalised_sample_jumps_density(p, dt, path; sorted=false)
+
+Retained Poisson-path log density, including `-dt * p.mass`.
+"""
 function log_normalised_sample_jumps_density(
-    p::TruncatedLevyProcess, dt::Real, path::SampleJumps
+    p::TruncatedLevyProcess, dt::Real, path::SampleJumps; sorted::Bool=false
 )
-    unnormalised_density = log_unnormalised_sample_path_density(p, dt, path)
-    return unnormalised_density - dt * p.mass
+    return log_unnormalised_sample_jumps_density(p, dt, path; sorted) - dt * p.mass
+end
+
+function unnormalised_sample_jumps_density(p::TruncatedLevyProcess, dt::Real, path::SampleJumps; sorted::Bool=false)
+    return exp(log_unnormalised_sample_jumps_density(p, dt, path; sorted))
+end
+
+function normalised_sample_jumps_density(p::TruncatedLevyProcess, dt::Real, path::SampleJumps; sorted::Bool=false)
+    return exp(log_normalised_sample_jumps_density(p, dt, path; sorted))
 end
 
 # Process definitions
