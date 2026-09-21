@@ -42,11 +42,13 @@ struct SampleJumps{T<:Real}
     jump_times::Vector{T}
     jump_sizes::Vector{T}
 
-    function SampleJumps(times::Vector{T}, sizes::Vector{T}) where {T<:Real}
+    function SampleJumps{T}(times, sizes) where {T<:Real}
         length(times) == length(sizes) || throw(DimensionMismatch("jump times and sizes must have equal lengths"))
         return new{T}(times, sizes)
     end
 end
+
+SampleJumps(times::Vector{T}, sizes::Vector{T}) where {T<:Real} = SampleJumps{T}(times, sizes)
 
 function Base.length(s::SampleJumps)
     return length(s.jump_times)

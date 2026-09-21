@@ -63,11 +63,11 @@ levy_drift(p::TruncatedLevyProcess) = p.drift
 levy_variance(p::TruncatedLevyProcess) = p.variance
 
 function levy_density(p::TruncatedLevyProcess, x::T) where {T<:Real}
-    return isfinite(x) && p.lower < abs(x) <= p.upper ? levy_density(p.process, x) : zero(T)
+    return isfinite(x) && !iszero(x) && p.lower <= abs(x) <= p.upper ? levy_density(p.process, x) : zero(T)
 end
 
 function log_levy_density(p::TruncatedLevyProcess, x::T) where {T<:Real}
-    return isfinite(x) && p.lower < abs(x) <= p.upper ? log_levy_density(p.process, x) : -Inf
+    return isfinite(x) && !iszero(x) && p.lower <= abs(x) <= p.upper ? log_levy_density(p.process, x) : -Inf
 end
 
 function levy_tail_mass(p::TruncatedLevyProcess, x::T) where {T<:Real}

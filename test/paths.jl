@@ -14,6 +14,7 @@
     @test LP.log_normalised_sample_jumps_density(p, dt, SampleJumps(Float64[], Float64[])) == -dt * p.mass
     @test LP.log_normalised_sample_jumps_density(p, dt, SampleJumps([dt + 1], [0.6])) == -Inf
     @test LP.log_normalised_sample_jumps_density(p, dt, SampleJumps([0.4], [0.1])) == -Inf
+    @test SampleJumps{Float32}([0.4], [0.6]).jump_sizes == Float32[0.6]
     @test_throws DimensionMismatch SampleJumps([0.4], Float64[])
 end
 
@@ -22,6 +23,7 @@ end
     p = StableProcess(0.7, 0.2, 1.0)
     truncated = TruncatedLevyProcess(p; l=0.2, u=3.0)
     @test levy_density(truncated, -0.6) == levy_density(p, -0.6)
+    @test levy_density(truncated, -0.2) == levy_density(p, -0.2)
     @test LevyProcesses.levy_variance(truncated) == 0
     @test levy_tail_mass(truncated, 0.0) == truncated.mass
     @test levy_tail_mass(truncated, Inf) == 0
