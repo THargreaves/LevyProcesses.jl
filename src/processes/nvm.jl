@@ -16,13 +16,58 @@ struct NormalVarianceMeanProcess{T<:Real,P<:LevyProcess{T}} <:
     subordinator::P
     μ::T
     σ::T
+    function NormalVarianceMeanProcess{T,P}(subordinator::P, μ::Real, σ::Real) where {T<:Real,P<:LevyProcess{T}}
+        isfinite(μ) || throw(ArgumentError("μ must be finite"))
+        isfinite(σ) && σ >= 0 || throw(ArgumentError("σ must be finite and non-negative"))
+        μ, σ = T(μ), T(σ)
+        isfinite(μ) || throw(ArgumentError("μ must be finite"))
+        isfinite(σ) && σ >= 0 || throw(ArgumentError("σ must be finite and non-negative"))
+        return new{T,P}(subordinator, μ, σ)
+    end
+end
+
+function NormalVarianceMeanProcess(subordinator::P, μ::Real, σ::Real) where {T<:Real,P<:LevyProcess{T}}
+    return NormalVarianceMeanProcess{T,P}(subordinator, μ, σ)
 end
 
 const VarianceGammaProcess{T<:AbstractFloat} = NormalVarianceMeanProcess{T,GammaProcess{T}}
 
-# HACK: temporary fix whilst tail mass is mandatory
-function levy_tail_mass(p::VarianceGammaProcess{T}, x::T) where {T<:AbstractFloat}
-    return 0.0
+# X is the difference of independent gamma processes with intensity γ.
+function _vg_rates(p::VarianceGammaProcess)
+    μ, σ, λ = p.μ, p.σ, p.subordinator.λ
+    if iszero(σ)
+        positive = μ > 0 ? λ / μ : oftype(λ, Inf)
+        negative = μ < 0 ? -λ / μ : oftype(λ, Inf)
+        return positive, negative
+    end
+    r = hypot(μ, σ * sqrt(2λ))
+    # Rationalise the smaller numerator to avoid cancellation.
+    positive = μ >= 0 ? 2λ / (r + μ) : (r - μ) / σ^2
+    negative = μ <= 0 ? 2λ / (r - μ) : (r + μ) / σ^2
+    return positive, negative
+end
+
+function log_levy_density(p::VarianceGammaProcess, x::Real)
+    iszero(x) && return -Inf
+    positive, negative = _vg_rates(p)
+    rate = x > 0 ? positive : negative
+    isinf(rate) && return -Inf
+    return log(p.subordinator.γ) - log(abs(x)) - rate * abs(x)
+end
+
+levy_density(p::VarianceGammaProcess, x::Real) = exp(log_levy_density(p, x))
+
+function levy_tail_mass(p::VarianceGammaProcess, x::Real)
+    x >= 0 || throw(DomainError(x, "the absolute jump threshold must be non-negative"))
+    positive, negative = _vg_rates(p)
+    tail(rate) = isinf(rate) ? zero(p.μ) : levy_tail_mass(GammaProcess(p.subordinator.γ, rate), x)
+    return tail(positive) + tail(negative)
+end
+
+function levy_drift(p::VarianceGammaProcess)
+    positive, negative = _vg_rates(p)
+    drift(rate) = isinf(rate) ? zero(p.μ) : levy_drift(GammaProcess(p.subordinator.γ, rate))
+    return drift(positive) - drift(negative)
 end
 
 ################################################
@@ -33,11 +78,11 @@ const PreTruncatedNormalVarianceMeanProcess{T<:AbstractFloat} = NormalVarianceMe
     T,TruncatedLevyProcess{T,GammaProcess{T}}
 }
 
-function sample(rng::AbstractRNG, p::AbstractNormalMixtureProcess, dt::Real)
+function sample(rng::AbstractRNG, p::AbstractNormalMixtureProcess{T}, dt::Real) where {T}
     subordinator_path = sample(rng, p.subordinator, dt)
-    jump_sizes = [
+    jump_sizes = T[
         p.μ * unscaled_jump_mean(p, z) +
-        p.σ * sqrt(unscaled_jump_variance(p, z)) * randn(rng) for
+        p.σ * sqrt(unscaled_jump_variance(p, z)) * randn(rng, T) for
         z in subordinator_path.jump_sizes
     ]
     return SampleJumps(subordinator_path.jump_times, jump_sizes)
@@ -81,21 +126,17 @@ function VarianceGammaMarginal(μ::T, σ::T, γ::T, λ::T, t::T) where {T<:Real}
 end
 
 function sample(
-    rng::AbstractRNG, p::TruncatedVarianceGammaProcess{T}, dt::T
+    rng::AbstractRNG, p::TruncatedVarianceGammaProcess{T}, dt::Real
 ) where {T<:AbstractFloat}
-    # Scale subordinator to have unit mean
-    κ = 1 / p.process.subordinator.λ
-    dt *= p.process.subordinator.γ / p.process.subordinator.λ
-
-    # TODO: avoid recomputing these for every sample
-    A = p.process.μ / p.process.σ^2
-    B = sqrt(p.process.μ^2 + 2p.process.σ^2 / κ) / p.process.σ^2
-
-    positive_process = TruncatedLevyProcess(GammaProcess(1 / κ, B - A), p.lower, p.upper)
-    negative_process = TruncatedLevyProcess(GammaProcess(1 / κ, A + B), p.lower, p.upper)
-
-    positive_jumps = sample(rng, positive_process, dt)
-    negative_jumps = sample(rng, negative_process, dt)
+    isfinite(dt) && dt >= 0 || throw(ArgumentError("sampling time must be finite and non-negative"))
+    positive, negative = _vg_rates(p.process)
+    γ = p.process.subordinator.γ
+    function draw(rate)
+        isinf(rate) && return SampleJumps(T[], T[])
+        return sample(rng, TruncatedLevyProcess(GammaProcess(γ, rate), p.lower, p.upper), dt)
+    end
+    positive_jumps = draw(positive)
+    negative_jumps = draw(negative)
 
     return SampleJumps(
         vcat(positive_jumps.jump_times, negative_jumps.jump_times),
@@ -123,7 +164,9 @@ function cdf(d::VarianceGammaMarginal, x::Real)
 end
 
 function marginal(p::VarianceGammaProcess{T}, t::Real) where {T<:AbstractFloat}
-    return VarianceGammaMarginal(p.μ, p.σ, p.subordinator.γ, p.subordinator.λ, t)
+    p.σ > 0 || throw(ArgumentError("the variance-gamma marginal density requires σ > 0; use the scaled gamma law when σ = 0"))
+    isfinite(t) && t > 0 || throw(ArgumentError("marginal time must be finite and positive"))
+    return VarianceGammaMarginal(promote(p.μ, p.σ, p.subordinator.γ, p.subordinator.λ, float(t))...)
 end
 
 ######################################
@@ -134,6 +177,18 @@ struct NσMProcess{T<:Real,P<:LevyProcess{T}} <: AbstractNormalMixtureProcess{T}
     subordinator::P
     μ::T
     σ::T
+    function NσMProcess{T,P}(subordinator::P, μ::Real, σ::Real) where {T<:Real,P<:LevyProcess{T}}
+        isfinite(μ) || throw(ArgumentError("μ must be finite"))
+        isfinite(σ) && σ >= 0 || throw(ArgumentError("σ must be finite and non-negative"))
+        μ, σ = T(μ), T(σ)
+        isfinite(μ) || throw(ArgumentError("μ must be finite"))
+        isfinite(σ) && σ >= 0 || throw(ArgumentError("σ must be finite and non-negative"))
+        return new{T,P}(subordinator, μ, σ)
+    end
+end
+
+function NσMProcess(subordinator::P, μ::Real, σ::Real) where {T<:Real,P<:LevyProcess{T}}
+    return NσMProcess{T,P}(subordinator, μ, σ)
 end
 
 ################################################
@@ -158,6 +213,11 @@ unscaled_jump_variance(::NσMProcess, z) = z^2
 function to_stable(p::NσMProcess{T,StableSubordinator{T}}) where {T<:Real}
     α, C = p.subordinator.α, p.subordinator.C
     μ, σ = p.μ, p.σ
+    if iszero(σ)
+        iszero(μ) && throw(ArgumentError("the zero process has no non-degenerate stable marginal"))
+        scale = abs(μ) * (C * gamma(1 - α) * cospi(α / 2) / α)^(1 / α)
+        return StableProcess(α, sign(μ), scale)
+    end
     C_α = (1 - α) / (gamma(2 - α) * cos(π * α / 2))
 
     # Correct for scaling of subordinator

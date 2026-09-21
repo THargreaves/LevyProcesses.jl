@@ -153,3 +153,24 @@ end
     @test L_nsm.μ ≈ L_nsm_converted.μ
     @test L_nsm.σ ≈ L_nsm_converted.σ
 end
+
+@testitem "Variance gamma: jump measure and time interval" begin
+    using QuadGK
+    using Random
+    p = NormalVarianceMeanProcess(GammaProcess(6, 3), -0.7, 1.2)
+    @test_throws ArgumentError NormalVarianceMeanProcess(p.subordinator, 0, -1)
+    @test_throws ArgumentError NσMProcess(p.subordinator, Inf, 1)
+    @test levy_tail_mass(p, 0.2) ≈ quadgk(x -> levy_density(p, x) + levy_density(p, -x), 0.2, Inf)[1]
+    @test levy_drift(p) ≈ quadgk(x -> x * (levy_density(p, x) - levy_density(p, -x)), 0, 1)[1]
+    # The gamma decomposition must use the original time interval on both sides.
+    path = sample(MersenneTwister(12), TruncatedLevyProcess(p; l=1e-4), 0.3)
+    @test !isempty(path.jump_times)
+    @test all(t -> 0 <= t <= 0.3, path.jump_times)
+    q = NormalVarianceMeanProcess(GammaProcess(2, 3), -2, 0)
+    @test levy_density(q, 0.5) == 0
+    @test levy_density(q, -0.5) ≈ levy_density(GammaProcess(2, 1.5), 0.5)
+    @test_throws ArgumentError marginal(q, 1)
+    z = NormalVarianceMeanProcess(GammaProcess(2, 3), 0, 0)
+    @test levy_tail_mass(z, 0) == levy_drift(z) == 0
+    @test isempty(sample(MersenneTwister(12), TruncatedLevyProcess(z; l=0.1), 1).jump_sizes)
+end
