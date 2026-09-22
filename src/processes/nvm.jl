@@ -230,7 +230,7 @@ function to_stable(p::NσMProcess{T,StableSubordinator{T}}) where {T<:Real}
         scale = abs(μ) * (C * gamma(1 - α) * cospi(α / 2) / α)^(1 / α)
         return from_s1(α, sign(μ), scale, p.drift)
     end
-    C_α = (1 - α) / (gamma(2 - α) * cos(π * α / 2))
+    C_α = 2gamma(α) * sinpi(α / 2) / π
 
     # Correct for scaling of subordinator
     sf = (α / C)^(-1 / α)

@@ -3,7 +3,10 @@ import Random
 
 export StableS0, from_s1, to_s1
 
-"""Nolan S0 stable marginal. Near α=1, density/CDF use checked Fourier quadrature."""
+"""
+Nolan S0 stable marginal. Near α=1, density/CDF use checked Fourier quadrature.
+Its absolute error tolerance does not guarantee relative accuracy in extreme tails.
+"""
 struct StableS0{T<:Real} <: ContinuousUnivariateDistribution
     α::T
     β::T

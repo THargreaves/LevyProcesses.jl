@@ -115,7 +115,7 @@ end
 # TODO: implement adapative stopping
 # TODO: considered direct logpdf computation
 # S0 avoids the ill-conditioned S1 location in the finite-series formula near α=1.
-function pdf(d::StableGaussianConvolution{T,S}, x::Real; rtol=1e-8, atol=1e-10) where {T,S<:StableS0}
+function pdf(d::StableGaussianConvolution{T,S}, x::Real; rtol=1e-8, atol=1e-10) where {T<:Real,S<:StableS0}
     stable, normal = d.stable, d.normal
     iszero(normal.σ) && return pdf(stable, x - normal.μ)
     !isfinite(x) && return isnan(x) ? NaN : zero(T)
@@ -227,7 +227,7 @@ Recover σ from the stable scale parameter γ given α and λ = μ/σ.
 Uses the relationship: E[|W|^α] = γ^α * C_α.
 """
 function _sigma_from_gamma(γ::Real, α::Real, λ::Real)
-    C_α = (1 - α) / (gamma(2 - α) * cos(π * α / 2))
+    C_α = 2gamma(α) * sinpi(α / 2) / π
     C = 2^(α / 2) * gamma((α + 1) / 2) / sqrt(π)
     z = -λ^2 / 2
     J = pFq((-(α / 2),), (1 / 2,), z)

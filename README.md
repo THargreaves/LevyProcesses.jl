@@ -50,7 +50,7 @@ Compensation and residual approximation policies are being developed separately;
 `approximate_residual=true` currently raises an error. Conditional Gaussian
 transition construction still adds the existing covariance jitter; use
 `conditional_marginal_parameters` to obtain the unmodified jump contribution.
-The stable–Gaussian convolution and variance-gamma marginal density routines
+The S1 stable–Gaussian convolution series and variance-gamma marginal density routines
 remain research approximations with limited numerical validation.
 
 The experimental `HittingTime` residual sampler remains unvalidated for general
