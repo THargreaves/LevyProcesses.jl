@@ -437,8 +437,10 @@ function projection_marginal(sde::LangevianStableDrivenSDE, t::Real, u::Abstract
     absolute, signed = _stable_response_moments(θ, t, u, p.α)
     linear = dot(u, _integrated_response(sde.dynamics, [0, 1], t))
     knots = [zero(float(t)), float(t)]
-    if response(0) * response(t) < 0
-        push!(knots, find_zero(response, (zero(t), t), Bisection()))
+    if abs(p.α - 1) <= 1e-4 && response(0) * response(t) < 0
+        crossing = iszero(θ) ? -u[2] / u[1] :
+            log1p(-θ * u[2] / (u[1] + θ * u[2])) / θ
+        push!(knots, crossing)
         sort!(knots)
     end
     location = _stable_response_location(p, absolute, signed, linear, response, knots)
