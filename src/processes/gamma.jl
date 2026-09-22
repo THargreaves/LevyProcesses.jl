@@ -6,19 +6,34 @@ import SpecialFunctions: expinti
 struct GammaProcess{T<:Real} <: LevyProcess{T}
     γ::T
     λ::T
+    function GammaProcess{T}(γ::Real, λ::Real) where {T<:Real}
+        γ, λ = T(γ), T(λ)
+        isfinite(γ) && γ > 0 || throw(ArgumentError("γ must be finite and positive"))
+        isfinite(λ) && λ > 0 || throw(ArgumentError("λ must be finite and positive"))
+        return new{T}(γ, λ)
+    end
 end
 
-levy_density(p::GammaProcess, x::Real) = p.γ / x * exp(-p.λ * x)
-log_levy_density(p::GammaProcess, x::Real) = log(p.γ) - p.λ * x - log(x)
+function GammaProcess(γ::Real, λ::Real)
+    γ, λ = promote(float(γ), float(λ))
+    return GammaProcess{typeof(γ)}(γ, λ)
+end
+
+levy_density(p::GammaProcess, x::Real) = x > 0 ? p.γ / x * exp(-p.λ * x) : zero(float(x))
+log_levy_density(p::GammaProcess, x::Real) = x > 0 ? log(p.γ) - p.λ * x - log(x) : -Inf
 
 function levy_drift(p::GammaProcess)
-    return p.γ / p.λ * (1 - exp(-p.λ))
+    return p.γ * (-expm1(-p.λ) / p.λ)
 end
 
 # Simulation of Lévy Random Fields, Wolpert and Ickstadt, 1998
-levy_tail_mass(p::GammaProcess, x::Real) = -p.γ * expinti(-x * p.λ)
+function levy_tail_mass(p::GammaProcess, x::Real)
+    x >= 0 || throw(DomainError(x, "the absolute jump threshold must be non-negative"))
+    return x == 0 ? oftype(p.γ, Inf) : -p.γ * expinti(-x * p.λ)
+end
 
 function marginal(p::GammaProcess, t::Real)
+    isfinite(t) && t > 0 || throw(ArgumentError("marginal time must be finite and positive"))
     return Gamma(p.γ * t, 1 / p.λ)
 end
 
@@ -37,17 +52,17 @@ struct GammaDominatingProcess{T<:Real} <: LevyProcess{T}
 end
 
 levy_density(p::GammaDominatingProcess, x::Real) = p.γ / (x * (1 + p.λ * x))
-levy_tail_mass(p::GammaDominatingProcess, x::Real) = p.γ * log(1 + 1 / (p.λ * x))
+levy_tail_mass(p::GammaDominatingProcess, x::Real) = p.γ * log1p(1 / (p.λ * x))
 # WILL: should this be parameter — collision with LevyProcesses.jl:19
 # Try T<:Real
 function inverse_levy_tail_mass(p::GammaDominatingProcess{T}, Γ::T) where {T<:Real}
-    T(1.0) / (p.λ * (exp(Γ / p.γ) - T(1.0)))
+    T(1.0) / (p.λ * expm1(Γ / p.γ))
 end
 
 function inverse_levy_tail_mass(
     p::GammaDominatingProcess{T}, Γs::AbstractVector{T}
 ) where {T}
-    T(1.0) ./ (p.λ .* (exp.(Γs ./ p.γ) .- T(1.0)))
+    T(1.0) ./ (p.λ .* expm1.(Γs ./ p.γ))
 end
 
 const TruncatedGammaDominatingProcess{T<:Real} = TruncatedLevyProcess{

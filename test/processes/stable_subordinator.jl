@@ -78,3 +78,15 @@ end
 #     test = ApproximateTwoSampleKSTest(approx_samples, exact_samples)
 #     @test pvalue(test) > 0.1
 # end
+
+@testitem "StableSubordinator: support and Laplace exponent" begin
+    using QuadGK
+    p = StableSubordinator(0.6, 0.3)
+    @test levy_density(p, -1) == 0
+    @test log_levy_density(p, 0) == -Inf
+    @test levy_drift(p) ≈ quadgk(x -> x * levy_density(p, x), 0, 1)[1]
+    exponent = quadgk(x -> expm1(-x) * levy_density(p, x), 0, Inf)[1]
+    @test exponent ≈ -p.σ^p.α / cospi(p.α / 2)
+    @test_throws ArgumentError StableSubordinator(1.2, 1)
+    @test_throws ArgumentError StableSubordinator(0.5, -1)
+end

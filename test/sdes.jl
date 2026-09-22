@@ -1,113 +1,154 @@
-using Test
-using LevyProcesses
-
-@testitem "Conditional marginal" begin
+@testitem "Conditional transition statistics" begin
     using LevyProcesses
-    using Random
-    using Statistics
-    using Test
-
-    test_t = 0.8
-    test_ϵ = 1e-10
-
-    γ = 1.3
-    λ = 10.8
-    μ_W = 1.4
-    σ_W = 1.5
-    θ = -0.5
-    h = [0.3, 0.5]
-    x0 = [0.2, 0.5]
-
-    S = GammaProcess(γ, λ)
-    S̄ = TruncatedLevyProcess(S; l=1e-10)
-    W = NormalVarianceMeanProcess(S̄, μ_W, σ_W)
-
-    dyn = LangevinDynamics(θ)
-    sde = LevyDrivenLinearSDE(W, dyn, h)
-
-    rng = MersenneTwister(1234)
-    jumps = sample(rng, S̄, test_t)
-
-    cond_marginal = conditional_marginal(jumps, sde, test_t; x0)
-
-    # Brute force compute distribution
-    REPS = 10000
-    sort!(jumps)
-    final_states = Vector{Vector{Float64}}(undef, REPS)
-    for r in 1:REPS
-        x = copy(x0)
-        for i in 1:length(jumps.jump_times)
-            last_jump = i > 1 ? jumps.jump_times[i - 1] : 0.0
-            dt = jumps.jump_times[i] - last_jump
-            subordinator_increment = (
-                μ_W * jumps.jump_sizes[i] + σ_W * sqrt(jumps.jump_sizes[i]) * randn(rng)
-            )
-            x = exp(dyn, dt) * x + h * subordinator_increment
+    using LinearAlgebra
+    using QuadGK
+    times, sizes = [0.2, 0.7], [0.4, 0.9]
+    path = SampleJumps(times, sizes)
+    dyn = LangevinDynamics(-0.5)
+    h, x0, t = [0.3, 0.5], [0.2, 0.5], 0.8
+    for mixture in (NormalVarianceMeanProcess, NσMProcess)
+        p = mixture === NσMProcess ?
+            mixture(GammaProcess(1.3, 10.8), 1.4, 1.5; drift=0.35) :
+            mixture(GammaProcess(1.3, 10.8), 1.4, 1.5)
+        sde = LevyDrivenLinearSDE(p, dyn, h)
+        m, Q = conditional_marginal_parameters(path, sde, t; x0)
+        # Compose independent Gaussian jump updates chronologically.
+        expected_m, expected_Q, previous = copy(x0), zeros(2, 2), 0.0
+        for (v, z) in zip(times, sizes)
+            F = exp(dyn, v - previous)
+            expected_m = F * expected_m + p.μ * z * h
+            variance = mixture === NormalVarianceMeanProcess ? z : z^2
+            expected_Q = F * expected_Q * F' + p.σ^2 * variance * h * h'
+            previous = v
         end
-        dt = test_t - jumps.jump_times[end]
-        final_states[r] = exp(dyn, dt) * x
+        F = exp(dyn, t - previous)
+        drift = LevyProcesses.deterministic_drift(p)
+        deterministic_mean = drift * quadgk(s -> exp(dyn, s) * h, 0.0, t)[1]
+        @test m ≈ F * expected_m + deterministic_mean
+        @test Q ≈ F * expected_Q * F'
     end
-
-    @test mean(final_states) ≈ cond_marginal.μ rtol = 1e-2
-    @test cov(final_states) ≈ cond_marginal.Σ rtol = 1e-2
 end
 
-# TODO: add unit test for non-centred case
-@testitem "Langevian-Stable SDE projection marginals" begin
+@testitem "Linear dynamics and stable marginals" begin
     using LevyProcesses
-    using Random
-    using Statistics
-    using Test
-    using HypothesisTests
-    using StaticArrays
+    using Distributions
     using LinearAlgebra
+    t = 2.5
+    @test exp(LangevinDynamics(0.0), t) == [1.0 t; 0.0 1.0]
+    @test exp(LangevinDynamics(-1e-12), t) ≈ exp([0.0 1.0; 0.0 -1e-12] * t)
+    for α in (0.7, 1.4)
+        p = StableProcess(α, 0.3, 1.2)
+        sde = StableDrivenSDE(p, UnivariateLinearDynamics(0.0))
+        @test params(marginal(sde, 0.0, t)) == params(marginal(p, t))
+        langevin = LangevianStableDrivenSDE(p, LangevinDynamics(0.0))
+        @test collect(params(projection_marginal(langevin, t, [0.0, 1.0]))) ≈ collect(params(marginal(p, t)))
+        projection = projection_marginal(langevin, 1.0, [1.0, -0.5])
+        integral = 2 * 0.5^(α + 1) / (α + 1) / norm([1.0, -0.5])^α
+        @test projection.β ≈ 0 atol=1e-12
+        @test projection.σ ≈ p.σ * integral^(1 / α)
+    end
+end
 
-    t = 0.8
-    ϵ = 1e-6
-    REPS = 1000
-
-    α = 0.7
-    β = 0.3
-    γ = 1.2
-    θ = -0.5
-    h = @SVector [0.0, 1.0]
-
-    rng = MersenneTwister(1234)
-
-    S = StableProcess(α, β, γ)
-    W = to_nsm(S)
-    W̄ = NσMProcess(
-        TruncatedLevyProcess(StableSubordinator(α, W.subordinator.C); l=ϵ), W.μ, W.σ
-    )
-    dyn = LangevinDynamics(θ)
-    sde = LangevianStableDrivenSDE(S, dyn)
-
-    marginals = Vector{SVector{2,Float64}}(undef, REPS)
-    for r in 1:REPS
-        jumps = sample(rng, W̄, t)
-        x = @SVector [0.0, 0.0]
-        for i in 1:length(jumps.jump_sizes)
-            last_jump = i > 1 ? jumps.jump_times[i - 1] : 0.0
-            dt = jumps.jump_times[i] - last_jump
-            x = exp(dyn, dt) * x + h * jumps.jump_sizes[i]
+@testitem "Stable projection closed forms and S0 location" begin
+    using Distributions, LinearAlgebra, QuadGK
+    using ForwardDiff
+    LP = LevyProcesses
+    t = 1.3
+    # Ordinary damping, a crossing, tiny nonzero damping, and analytic limits.
+    for (θ, v) in ((-2.0, [1.0, 0.2]), (0.4, [1.0, -0.5]),
+                   (1e-8, [1.0, -0.5]), (0.0, [1.0, -0.5]),
+                   (-0.5, [1.0, 2.0]), (-0.5, [1.0, 2.0 + 1e-12]),
+                   (-0.5, [0.0, 1.0]))
+        u = v / norm(v)
+        g = s -> dot(u, exp(LangevinDynamics(θ), s) * [0.0, 1.0])
+        for α in (0.7, 1.4)
+            expected = quadgk(s -> [abs(g(s))^α, sign(g(s)) * abs(g(s))^α], 0.0, t; atol=1e-11)[1]
+            @test collect(LP._stable_response_moments(θ, t, u, α)) ≈ expected rtol=1e-8 atol=1e-10
         end
-        dt = t - jumps.jump_times[end]
-        x = exp(dyn, dt) * x
-        marginals[r] = x
     end
-
-    # Test over range of projection angles
-    n_tests = 32
-    ϕs = range(0, π; length=n_tests)
-    bonferroni_α = 0.05 / n_tests
-    p_values = Vector{Float64}(undef, n_tests)
-    for (i, ϕ) in enumerate(ϕs)
-        proj = @SVector [cos(ϕ), sin(ϕ)]
-        projected_samples = [dot(m, proj) for m in marginals]
-
-        analytical_dist = projection_marginal(sde, t, proj)
-        test = ExactOneSampleKSTest(projected_samples, analytical_dist)
-        p_values[i] = pvalue(test)
+    # Integrating the driver's log characteristic function independently checks
+    # the S0 location, including the continuous logarithmic α=1 limit.
+    dyn, u, ω = LangevinDynamics(0.4), normalize([1.0, -0.5]), 0.3
+    g = s -> dot(u, exp(dyn, s) * [0.0, 1.0])
+    for α in (0.7, 1 - 1e-6, 1.0, 1 + 1e-6, 1.4)
+        p = StableProcess(α, 0.3, 1.2, 0.2)
+        d = projection_marginal(LangevianStableDrivenSDE(p, dyn), t, u)
+        driver = marginal(p, 1.0)
+        expected = exp(quadgk(s -> log(cf(driver, ω * g(s))), 0.0, t; atol=1e-11)[1])
+        @test cf(d, ω) ≈ expected rtol=1e-8
+        scalar = marginal(StableDrivenSDE(p, UnivariateLinearDynamics(-0.4)), 0.2, t)
+        scalar_cf = exp(im * ω * 0.2 * exp(-0.4t) +
+            quadgk(s -> log(cf(driver, ω * exp(-0.4s))), 0.0, t; atol=1e-11)[1])
+        @test cf(scalar, ω) ≈ scalar_cf rtol=1e-8
     end
-    @test all(pv -> pv > bonferroni_α, p_values)
+    f(α) = real(cf(projection_marginal(
+        LangevianStableDrivenSDE(StableProcess(α, 0.3, 1.2, 0.2), dyn), t, u,
+    ), ω))
+    @test ForwardDiff.derivative(f, 1.0) ≈ (f(1 + 1e-5) - f(1 - 1e-5)) / 2e-5 rtol=1e-6
+end
+
+@testitem "Deterministic drift in batched transitions" begin
+    using CUDA
+    if CUDA.functional()
+        LP = LevyProcesses
+        times, sizes, t = [0.2, 0.7], [0.4, 0.9], 0.8
+        p = NσMProcess(GammaProcess(1.3, 10.8), 1.4, 1.5; drift=0.35)
+        sde = LevyDrivenLinearSDE(p, LangevinDynamics(-0.5), [0.3, 0.5])
+        expected, _ = conditional_marginal_parameters(SampleJumps(times, sizes), sde, t)
+        ragged = LP.RaggedBatchSampleJumps(CuArray(sizes), CuArray(times), CuArray(Int32[2]), 2)
+        regular = LP.RegularBatchSampleJumps(CuArray(reshape(sizes, 2, 1)), CuArray(reshape(times, 2, 1)), 1)
+        for paths in (ragged, regular)
+            mean, _ = conditional_marginal_parameters(paths, sde, t)
+            @test vec(Array(mean)) ≈ expected rtol=1e-6
+        end
+    else
+        @test_skip CUDA.functional()
+    end
+end
+
+@testitem "Stable projection location across alpha one" begin
+    using LinearAlgebra, QuadGK, ForwardDiff
+    # Independent high-precision integrals are reference calculations only.
+    function reference_location(α, θ, t, v)
+        setprecision(160) do
+            a, θb, tb = BigFloat(α), BigFloat(θ), BigFloat(t)
+            u = BigFloat.(v) / norm(BigFloat.(v))
+            g(s) = iszero(θb) ? u[1] * s + u[2] :
+                u[1] * expm1(θb * s) / θb + u[2] * exp(θb * s)
+            knots = [zero(tb), tb]
+            if g(0) * g(tb) < 0
+                root = iszero(θb) ? -u[2] / u[1] :
+                    log1p(-θb * u[2] / (u[1] + θb * u[2])) / θb
+                insert!(knots, 2, root)
+            end
+            integrate(f) = quadgk(f, knots...; atol=big"1e-32", rtol=big"1e-32")[1]
+            H = integrate(g)
+            I = integrate(s -> abs(g(s))^a)
+            correction = if a == 1
+                K = integrate(s -> iszero(g(s)) ? zero(s) : g(s) * log(abs(g(s))))
+                2 / big(π) * (H * log(I) - K)
+            else
+                J = integrate(s -> sign(g(s)) * abs(g(s))^a)
+                tanpi(a / 2) * (J * I^(1 / a - 1) - H)
+            end
+            BigFloat(0.2) * H + BigFloat(0.3) * BigFloat(1.2) * correction
+        end
+    end
+    for (θ, t, v) in ((0.4, 1.3, [1.0, -0.5]),
+                       (0.0, 0.7, [1.0, 0.2]),
+                       (-0.5, 1.3, [1.0, 2.0 + 1e-8]))
+        location(a) = projection_marginal(LangevianStableDrivenSDE(
+            StableProcess(a, 0.3, 1.2, 0.2), LangevinDynamics(θ)), t, v).μ
+        alphas = 1 .+ [-1.001e-3, -0.999e-3, -1e-8, 0, 1e-8, 0.999e-3, 1.001e-3]
+        expected = [reference_location(a, θ, t, v) for a in alphas]
+        @test location.(alphas) ≈ expected rtol=2e-9 atol=2e-11
+        derivatives = map(alphas) do a
+            setprecision(160) do
+                h = big"1e-12"
+                (reference_location(BigFloat(a) + h, θ, t, v) -
+                 reference_location(BigFloat(a) - h, θ, t, v)) / (2h)
+            end
+        end
+        @test [ForwardDiff.derivative(location, a) for a in alphas] ≈ derivatives rtol=2e-7 atol=2e-9
+    end
 end

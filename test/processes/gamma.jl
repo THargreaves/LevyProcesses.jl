@@ -53,3 +53,17 @@ end
     test = ExactOneSampleKSTest(marginal_samples, marginal(p.process, test_t))
     @test pvalue(test) > 0.1
 end
+
+@testitem "Gamma: parameters and canonical drift" begin
+    using QuadGK
+    @test GammaProcess(2, 3) isa GammaProcess{Float64}
+    @test GammaProcess(2f0, 3f0) isa GammaProcess{Float32}
+    @test_throws ArgumentError GammaProcess(0, 1)
+    @test_throws ArgumentError GammaProcess(1, Inf)
+    p = GammaProcess(0.9, 1e-12)
+    @test levy_density(p, -1) == 0
+    @test log_levy_density(p, -1) == -Inf
+    @test levy_drift(p) ≈ quadgk(x -> x * levy_density(p, x), 0, 1)[1]
+    @test levy_tail_mass(p, 0) == Inf
+    @test_throws DomainError levy_tail_mass(p, -1)
+end

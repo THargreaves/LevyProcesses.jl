@@ -4,7 +4,7 @@ import StableDistributions: Stable
 
 export StableSubordinator
 
-# Equivalent to the stable process with β = 1.0 and 
+"""Positive stable subordinator with Lévy density `C * x^(-1-α)`, `0 < α < 1`."""
 struct StableSubordinator{T<:Real} <: LevyProcess{T}
     α::T
     C::T
@@ -18,13 +18,15 @@ struct StableSubordinator{T<:Real} <: LevyProcess{T}
     λ::T
 end
 function StableSubordinator(α::Real, C::Real)
+    isfinite(α) && 0 < α < 1 || throw(ArgumentError("α must lie in (0, 1)"))
+    isfinite(C) && C > 0 || throw(ArgumentError("C must be finite and positive"))
+    α, C = promote(float(α), float(C))
     C_α = 1 / π * gamma(α) * sin(π * α / 2)
     σ = (C / (2 * C_α * α))^(1 / α)
 
     A_0 = (1 - α) * α^(α / (1 - α))
     A_1 = α * (1 - α)^(1 / α - 1)
     ζ = gamma(1 - α)^(-1)
-    c_α = gamma(α) / π * sin(π * α / 2)
 
     # Optimise parameter rejection sampling
     log_cost(λ) =
@@ -33,16 +35,24 @@ function StableSubordinator(α::Real, C::Real)
     λ = Optim.minimizer(res)
     M = α * A_0 * exp(ζ^(1 / α) * λ^(1 - 1 / α) * A_1) * (A_0 - λ)^(α - 2)
 
-    return StableSubordinator(α, C, C_α, σ, A_0, A_1, ζ, M, λ)
+    return StableSubordinator{typeof(α)}(α, C, C_α, σ, A_0, A_1, ζ, M, λ)
 end
 
-levy_density(p::StableSubordinator, x::Real) = p.C / x^(1 + p.α)
-log_levy_density(p::StableSubordinator, x::Real) = log(p.C) - (1 + p.α) * log(x)
+levy_density(p::StableSubordinator, x::Real) = x > 0 ? p.C / x^(1 + p.α) : zero(p.C)
+log_levy_density(p::StableSubordinator, x::Real) = x > 0 ? log(p.C) - (1 + p.α) * log(x) : -Inf
+levy_drift(p::StableSubordinator) = p.C / (1 - p.α)
 
-levy_tail_mass(p::StableSubordinator, x::Real) = p.C / p.α * x^(-p.α)
-inverse_levy_tail_mass(p::StableSubordinator, Γ::Real) = (p.α * Γ / p.C)^(-1 / p.α)
+function levy_tail_mass(p::StableSubordinator, x::Real)
+    x >= 0 || throw(DomainError(x, "jump cutoff must be non-negative"))
+    return p.C / p.α * x^(-p.α)
+end
+function inverse_levy_tail_mass(p::StableSubordinator, Γ::Real)
+    Γ >= 0 || throw(DomainError(Γ, "tail mass must be non-negative"))
+    return (p.α * Γ / p.C)^(-1 / p.α)
+end
 
 function marginal(p::StableSubordinator, t::Real)
+    isfinite(t) && t > 0 || throw(ArgumentError("time must be finite and positive"))
     return Stable(p.α, 1.0, p.σ * t^(1 / p.α), 0.0)
 end
 
