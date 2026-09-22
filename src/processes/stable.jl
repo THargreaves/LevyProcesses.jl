@@ -72,17 +72,17 @@ end
 #### Stable Gaussian Convolution ####
 #####################################
 
-struct StableGaussianConvolution{T<:Real} <: ContinuousUnivariateDistribution
-    stable::Stable{T}
+struct StableGaussianConvolution{T<:Real,S<:ContinuousUnivariateDistribution} <: ContinuousUnivariateDistribution
+    stable::S
     normal::Normal{T}
 end
 
-function StableGaussianConvolution(S::Stable, N::Normal)
+function StableGaussianConvolution(S::Union{Stable,StableS0}, N::Normal)
     T = promote_type(typeof(S.α), typeof(N.μ))
-    return StableGaussianConvolution{T}(S, N)
+    return StableGaussianConvolution{T,typeof(S)}(S, Normal(T(N.μ), T(N.σ)))
 end
 
-function StableGaussianConvolution(S::Stable, σ::Real)
+function StableGaussianConvolution(S::Union{Stable,StableS0}, σ::Real)
     return StableGaussianConvolution(S, Normal(0.0, σ))
 end
 
@@ -92,6 +92,24 @@ end
 
 # TODO: implement adapative stopping
 # TODO: considered direct logpdf computation
+# S0 avoids the ill-conditioned S1 location in the finite-series formula near α=1.
+function pdf(d::StableGaussianConvolution{T,S}, x::Real; rtol=1e-8, atol=1e-10) where {T,S<:StableS0}
+    stable, normal = d.stable, d.normal
+    iszero(normal.σ) && return pdf(stable, x - normal.μ)
+    !isfinite(x) && return isnan(x) ? NaN : zero(T)
+    scale = max(stable.σ, normal.σ)
+    decay = -log(eps(Float64))
+    cutoff = min(decay^(1 / stable.α) * scale / stable.σ,
+                 sqrt(2decay) * scale / normal.σ)
+    centered = StableS0(stable.α, stable.β, stable.σ, zero(stable.μ))
+    f(u) = real(cis(-u * (x - stable.μ - normal.μ) / scale) *
+                cf(centered, u / scale)) * exp(-0.5 * (normal.σ * u / scale)^2)
+    value, error = quadgk(f, 0, 1, cutoff; rtol, atol)
+    error <= max(atol, rtol * abs(value)) || throw(ErrorException("convolution quadrature did not converge"))
+    value >= -error || throw(ErrorException("convolution quadrature returned a negative density"))
+    return max(value, zero(value)) / (π * scale)
+end
+
 function pdf(d::StableGaussianConvolution, x::Real; M::Int=10)
     S = d.stable
     N = d.normal
@@ -128,8 +146,8 @@ function pdf(d::StableGaussianConvolution, x::Real; M::Int=10)
     return T / (2π)
 end
 
-function logpdf(d::StableGaussianConvolution, x::Real; M::Int=10)
-    return log(pdf(d, x; M=M))
+function logpdf(d::StableGaussianConvolution, x::Real; kwargs...)
+    return log(pdf(d, x; kwargs...))
 end
 
 ###################################################
@@ -195,10 +213,24 @@ function _sigma_from_gamma(γ::Real, α::Real, λ::Real)
 end
 
 """
-    to_nsm(p::StableProcess; C=p.α)
+    to_nsm(p::StableProcess; C=p.α) -> NσMProcess
 
-Equivalent Gaussian-mark scale mixture for `α < 1` and `abs(β) < 1`.
-`C > 0` sets the stable subordinator's Lévy density coefficient.
+Convert an S0 stable process to a Gaussian-mark scale mixture, preserving its
+location through a deterministic drift. Requires `α < 1` and `abs(β) < 1`;
+indices above one require a compensated series, not a positive subordinator.
+
+For latent Lévy density `C * z^(-1-α)` and Gaussian mark `W = μ + σZ`, the
+physical positive/negative jump coefficients are `C * E[(±W)_+^α]`. Their ratio
+fixes stable skewness; their sum fixes stable scale. We solve for `μ/σ` by
+bisection and recover `σ` from the absolute α-moment of a Gaussian, following
+the series representation of Samorodnitsky and Taqqu (1994), §1.4.
+
+`C > 0` sets the latent subordinator intensity. Changing it rescales both mark
+parameters by `(α/C)^(1/α)` relative to `C=α`, leaving the physical law unchanged.
+The returned `μ` is the Gaussian-mark mean, not the S0 location. The returned
+`drift` is the corresponding S1 location for this finite-variation representation.
+When truncating its subordinator, preserve all three fields, for example
+`NσMProcess(truncated, q.μ, q.σ; drift=q.drift)` for `q = to_nsm(p)`.
 """
 function to_nsm(p::StableProcess; C=p.α)
     p.α < 1 || throw(ArgumentError("to_nsm requires α < 1 for a stable subordinator"))
@@ -219,5 +251,5 @@ function to_nsm(p::StableProcess; C=p.α)
     σ = σ̃ / sf
 
     S = StableSubordinator(α, C)
-    return NσMProcess(S, μ, σ)
+    return NσMProcess(S, μ, σ; drift=to_s1(p).μ)
 end

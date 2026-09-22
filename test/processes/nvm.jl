@@ -111,6 +111,7 @@ end
     p = to_stable(NσMProcess(StableSubordinator(α, C), μ, σ))
     @test p.σ^α ≈ (C / α) * (positive + negative) / C_α
     @test p.β ≈ (positive - negative) / (positive + negative)
+    @test p.μ ≈ p.β * p.σ * tanpi(α / 2)
     one_sided = to_stable(NσMProcess(StableSubordinator(α, C), -2, 0))
     @test one_sided.β == -1
     @test one_sided.σ^α ≈ (C / α) * 2^α / C_α
@@ -127,7 +128,7 @@ end
     σ_true = 1.3
 
     S = StableSubordinator(α, C)
-    L_nsm = NσMProcess(S, μ_true, σ_true)
+    L_nsm = NσMProcess(S, μ_true, σ_true; drift=0.4)
 
     # Convert to Stable process
     stable_process = to_stable(L_nsm)
@@ -137,6 +138,7 @@ end
 
     @test L_nsm.μ ≈ L_nsm_converted.μ
     @test L_nsm.σ ≈ L_nsm_converted.σ
+    @test L_nsm.drift ≈ L_nsm_converted.drift
 end
 
 @testitem "Variance gamma: jump measure and time interval" begin

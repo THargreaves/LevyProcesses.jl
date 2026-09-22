@@ -173,23 +173,35 @@ end
 #### Normal Scale Mixture Process ####
 ######################################
 
+"""
+    NσMProcess(subordinator, μ, σ; drift=0)
+
+Gaussian marks `z * (μ + σZ)` attached to subordinator jumps, with deterministic
+physical drift per unit time. `sample` returns the jumps only; SDE transitions
+include `drift`. The mark mean `μ` is not the process's stable location parameter.
+"""
 struct NσMProcess{T<:Real,P<:LevyProcess{T}} <: AbstractNormalMixtureProcess{T}
     subordinator::P
     μ::T
     σ::T
-    function NσMProcess{T,P}(subordinator::P, μ::Real, σ::Real) where {T<:Real,P<:LevyProcess{T}}
+    drift::T
+    function NσMProcess{T,P}(subordinator::P, μ::Real, σ::Real; drift::Real=0) where {T<:Real,P<:LevyProcess{T}}
         isfinite(μ) || throw(ArgumentError("μ must be finite"))
         isfinite(σ) && σ >= 0 || throw(ArgumentError("σ must be finite and non-negative"))
-        μ, σ = T(μ), T(σ)
-        isfinite(μ) || throw(ArgumentError("μ must be finite"))
+        isfinite(drift) || throw(ArgumentError("drift must be finite"))
+        μ, σ, drift = T(μ), T(σ), T(drift)
+        isfinite(μ) && isfinite(drift) || throw(ArgumentError("mean and drift must be representable and finite"))
         isfinite(σ) && σ >= 0 || throw(ArgumentError("σ must be finite and non-negative"))
-        return new{T,P}(subordinator, μ, σ)
+        return new{T,P}(subordinator, μ, σ, drift)
     end
 end
 
-function NσMProcess(subordinator::P, μ::Real, σ::Real) where {T<:Real,P<:LevyProcess{T}}
-    return NσMProcess{T,P}(subordinator, μ, σ)
+function NσMProcess(subordinator::P, μ::Real, σ::Real; drift::Real=0) where {T<:Real,P<:LevyProcess{T}}
+    return NσMProcess{T,P}(subordinator, μ, σ; drift)
 end
+
+deterministic_drift(::AbstractNormalMixtureProcess{T}) where {T} = zero(T)
+deterministic_drift(p::NσMProcess) = p.drift
 
 ################################################
 #### Jump parameter computation methods #######
@@ -216,7 +228,7 @@ function to_stable(p::NσMProcess{T,StableSubordinator{T}}) where {T<:Real}
     if iszero(σ)
         iszero(μ) && throw(ArgumentError("the zero process has no non-degenerate stable marginal"))
         scale = abs(μ) * (C * gamma(1 - α) * cospi(α / 2) / α)^(1 / α)
-        return StableProcess(α, sign(μ), scale)
+        return from_s1(α, sign(μ), scale, p.drift)
     end
     C_α = (1 - α) / (gamma(2 - α) * cos(π * α / 2))
 
@@ -233,5 +245,5 @@ function to_stable(p::NσMProcess{T,StableSubordinator{T}}) where {T<:Real}
         (μ̃ / σ̃) * 2^(1 / 2 - α) * sqrt(π) * gamma(1 + α) / gamma((α + 1) / 2)^2 *
         pFq(((1 - α) / 2,), (3 / 2,), z) / F_γ
     )
-    return StableProcess(α, β, γ)
+    return from_s1(α, β, γ, p.drift)
 end
