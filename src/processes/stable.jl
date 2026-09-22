@@ -10,22 +10,30 @@ export StableProcess, TruncatedStableProcess, sample_shot_noise, sample_marginal
 export StableGaussianConvolution
 export to_nsm
 
-"""Stable Lévy process with the S1 zero-location marginal; `0 < α < 2`, `α ≠ 1`."""
+"""
+    StableProcess(α, β, σ, μ=0)
+
+Stable Lévy process whose unit-time marginal has Nolan S0 parameters `(α, β, σ, μ)`.
+Requires `0 < α < 2`; use `from_s1` to preserve an existing S1 location convention.
+"""
 struct StableProcess{T<:Real} <: LevyProcess{T}
     α::T
     β::T
     σ::T
+    μ::T
     C_α::T
 end
-function StableProcess(α::Real, β::Real, σ::Real)
-    isfinite(α) && 0 < α < 2 && α != 1 ||
-        throw(ArgumentError("α must lie in (0, 2), excluding 1"))
+function StableProcess(α::Real, β::Real, σ::Real, μ::Real=zero(σ))
+    isfinite(α) && 0 < α < 2 || throw(ArgumentError("α must lie in (0, 2)"))
     isfinite(β) && abs(β) <= 1 || throw(ArgumentError("β must lie in [-1, 1]"))
     isfinite(σ) && σ > 0 || throw(ArgumentError("σ must be finite and positive"))
-    α, β, σ = promote(float(α), float(β), float(σ))
-    C_α = (1 - α) / (gamma(2 - α) * cos(π * α / 2))
-    return StableProcess(α, β, σ, oftype(α, C_α))
+    isfinite(μ) || throw(ArgumentError("μ must be finite"))
+    α, β, σ, μ = promote(float(α), float(β), float(σ), float(μ))
+    C_α = 2gamma(α) * sinpi(α / 2) / π
+    return StableProcess(α, β, σ, μ, oftype(α, C_α))
 end
+
+include("stable_s0.jl")
 
 function levy_density(p::StableProcess, x::Real)
     iszero(x) && return zero(p.α)
@@ -41,11 +49,25 @@ function levy_tail_mass(p::StableProcess, x::Real)
 end
 
 # Canonical truncation h(x) = x 1{|x| ≤ 1}.
-levy_drift(p::StableProcess) = p.α * p.σ^p.α * p.C_α * p.β / (1 - p.α)
+function levy_drift(p::StableProcess)
+    δ = p.α - 1
+    ratio = if abs(δ) < 0.01
+        log(p.σ) + _log1prel(δ) -
+            Base.MathConstants.eulergamma -
+            sum(SpecialFunctions.zeta(n) * δ^(n - 1) / n for n in 2:10) -
+            (-π^2 * δ / 8 * sinc(δ / 4)^2 * _log1prel(-2sinpi(δ / 4)^2))
+    else
+        (δ * log(p.σ) + log(p.α) - SpecialFunctions.loggamma(2 - p.α) -
+         log(sinpi(p.α / 2))) / δ
+    end
+    return p.μ - 2p.β * p.σ / π * _cot_factor(δ) * ratio * _exprel(δ * ratio)
+end
 
 function marginal(p::StableProcess, t::Real)
     isfinite(t) && t > 0 || throw(ArgumentError("time must be finite and positive"))
-    return Stable(p.α, p.β, p.σ * t^(1 / p.α), 0.0)
+    σ = p.σ * t^(1 / p.α)
+    μ = t * p.μ + p.β * t * p.σ * _s0_tan_difference(p.α, -log(t) / p.α)
+    return stable_s0_distribution(p.α, p.β, σ, μ)
 end
 
 const TruncatedStableProcess{T} = TruncatedLevyProcess{T,StableProcess{T}}
