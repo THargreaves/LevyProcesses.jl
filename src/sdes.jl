@@ -1,4 +1,5 @@
 import Distributions: MvNormal, Normal
+import ForwardDiff
 using CUDA
 using NNlib
 
@@ -334,11 +335,18 @@ function marginal(sde::StableDrivenSDE, x0::Real, t::Real)
         d = marginal(p, t)
         return stable_s0_distribution(d.α, d.β, d.σ, d.μ + x0)
     end
-    absolute = t * _exprel(p.α * dyn.a * t)
-    linear = t * _exprel(dyn.a * t)
-    response(s) = exp(dyn.a * s)
-    location = _stable_response_location(p, absolute, absolute, linear, response, (zero(t), t))
-    return stable_s0_distribution(p.α, p.β, p.σ * absolute^(1 / p.α), location + x0 * exp(dyn.a * t))
+    endpoint = exp(dyn.a * t)
+    response_scale = hypot(one(endpoint), endpoint)
+    moment(α) = if dyn.a > 0
+        t * (endpoint / response_scale)^α * _exprel(-α * dyn.a * t)
+    else
+        t * inv(response_scale)^α * _exprel(α * dyn.a * t)
+    end
+    absolute = moment(p.α)
+    linear = moment(one(p.α))
+    location = response_scale * _stable_response_location(p, absolute, absolute, linear, moment)
+    return stable_s0_distribution(p.α, p.β, p.σ * response_scale * absolute^(1 / p.α),
+                                  location + x0 * exp(dyn.a * t))
 end
 
 ##############################
@@ -402,30 +410,38 @@ function _stable_response_moments(θ, t, u, α)
     return absolute, signed
 end
 
-function _stable_response_location(p, absolute, signed, linear, response, knots)
+_moment_derivative(f, x, ::Val{0}) = f(x)
+function _moment_derivative(f, x, ::Val{N}) where {N}
+    return ForwardDiff.derivative(y -> _moment_derivative(f, y, Val(N - 1)), x)
+end
+
+function _stable_response_location(p, absolute, signed, linear, signed_moment)
     iszero(p.β) && return p.μ * linear
-    correction = if abs(p.α - 1) <= 1e-4
-        # Only the S0 location is ill-conditioned near α=1: its analytic
-        # moment difference vanishes while tan(πα/2) diverges. Integrate the
-        # continuous combined expression, including its logarithmic α=1 limit.
-        logscale = log(absolute) / p.α
-        integrand(s) = begin
-            g = response(s)
-            iszero(g) ? zero(g) : g * _s0_tan_difference(p.α, log(abs(g)) - logscale)
-        end
-        quadgk(integrand, knots...; atol=1e-12, rtol=1e-10)[1]
+    δ = p.α - 1
+    logscale = log(absolute) / p.α
+    divided_difference = if abs(δ) <= 1e-3
+        # Analytic moment derivatives resolve the removable singularity at α=1.
+        # Responses are normalized to |g|≤1 before forming this local series.
+        α0 = one(p.α)
+        d1 = _moment_derivative(signed_moment, α0, Val(1))
+        d2 = _moment_derivative(signed_moment, α0, Val(2))
+        d3 = _moment_derivative(signed_moment, α0, Val(3))
+        d4 = _moment_derivative(signed_moment, α0, Val(4))
+        dj = evalpoly(δ, (d1, d2 / 2, d3 / 6, d4 / 24))
+        q = -δ * logscale
+        exp(q) * dj - linear * logscale * _exprel(q)
     else
-        tanpi(p.α / 2) * (signed * absolute^(1 / p.α - 1) - linear)
+        (signed * exp(-δ * logscale) - linear) / δ
     end
-    return p.μ * linear + p.β * p.σ * correction
+    return p.μ * linear - 2p.β * p.σ / π * _cot_factor(δ) * divided_difference
 end
 
 """
     projection_marginal(sde, t, u)
 
 S0 stable marginal along the unit direction `u / norm(u)`, from a zero initial
-state. Response moments use closed forms; only the location correction within
-`1e-4` of α=1 uses quadrature to avoid cancellation.
+state. Analytic response moments and a local derivative expansion give a
+quadrature-free location correction continuous through α=1.
 """
 function projection_marginal(sde::LangevianStableDrivenSDE, t::Real, u::AbstractVector)
     length(u) == 2 || throw(ArgumentError("projection vector must have length 2"))
@@ -434,16 +450,12 @@ function projection_marginal(sde::LangevianStableDrivenSDE, t::Real, u::Abstract
     u = u / norm(u)
     θ, p = sde.dynamics.θ, sde.driving_process
     response(s) = u[1] * s * _exprel(θ * s) + u[2] * exp(θ * s)
-    absolute, signed = _stable_response_moments(θ, t, u, p.α)
-    linear = dot(u, _integrated_response(sde.dynamics, [0, 1], t))
-    knots = [zero(float(t)), float(t)]
-    if abs(p.α - 1) <= 1e-4 && response(0) * response(t) < 0
-        crossing = iszero(θ) ? -u[2] / u[1] :
-            log1p(-θ * u[2] / (u[1] + θ * u[2])) / θ
-        push!(knots, crossing)
-        sort!(knots)
-    end
-    location = _stable_response_location(p, absolute, signed, linear, response, knots)
+    response_scale = hypot(u[2], response(t))
+    normalized = u / response_scale
+    absolute, signed = _stable_response_moments(θ, t, normalized, p.α)
+    linear = dot(normalized, _integrated_response(sde.dynamics, [0, 1], t))
+    signed_moment(α) = last(_stable_response_moments(θ, t, normalized, α))
+    location = response_scale * _stable_response_location(p, absolute, signed, linear, signed_moment)
     β = clamp(p.β * signed / absolute, -one(p.β), one(p.β))
-    return stable_s0_distribution(p.α, β, p.σ * absolute^(1 / p.α), location)
+    return stable_s0_distribution(p.α, β, p.σ * response_scale * absolute^(1 / p.α), location)
 end

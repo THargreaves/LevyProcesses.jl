@@ -37,7 +37,9 @@ coordinates, and `to_s1(p)` for a unit-time `StableDistributions.Stable` adapter
 Zero S0 and zero S1 locations generally describe different skewed processes.
 S1 conversion becomes ill-conditioned near one; the S0 characteristic function,
 sampling and canonical drift use continuous formulas directly. Density and CDF
-evaluation near one use numerical integration.
+evaluation near one use numerical integration. Stable SDE projection parameters
+use analytic response integrals and a local divided-difference expansion to
+preserve location and α-gradients across one, without quadrature.
 
 `to_nsm` preserves the S0 location using an explicit deterministic `drift` in the
 returned mixture. Preserve this field when truncating its latent subordinator.

@@ -105,3 +105,50 @@ end
         @test_skip CUDA.functional()
     end
 end
+
+@testitem "Stable projection location across alpha one" begin
+    using LinearAlgebra, QuadGK, ForwardDiff
+    # Independent high-precision integrals are reference calculations only.
+    function reference_location(α, θ, t, v)
+        setprecision(160) do
+            a, θb, tb = BigFloat(α), BigFloat(θ), BigFloat(t)
+            u = BigFloat.(v) / norm(BigFloat.(v))
+            g(s) = iszero(θb) ? u[1] * s + u[2] :
+                u[1] * expm1(θb * s) / θb + u[2] * exp(θb * s)
+            knots = [zero(tb), tb]
+            if g(0) * g(tb) < 0
+                root = iszero(θb) ? -u[2] / u[1] :
+                    log1p(-θb * u[2] / (u[1] + θb * u[2])) / θb
+                insert!(knots, 2, root)
+            end
+            integrate(f) = quadgk(f, knots...; atol=big"1e-32", rtol=big"1e-32")[1]
+            H = integrate(g)
+            I = integrate(s -> abs(g(s))^a)
+            correction = if a == 1
+                K = integrate(s -> iszero(g(s)) ? zero(s) : g(s) * log(abs(g(s))))
+                2 / big(π) * (H * log(I) - K)
+            else
+                J = integrate(s -> sign(g(s)) * abs(g(s))^a)
+                tanpi(a / 2) * (J * I^(1 / a - 1) - H)
+            end
+            BigFloat(0.2) * H + BigFloat(0.3) * BigFloat(1.2) * correction
+        end
+    end
+    for (θ, t, v) in ((0.4, 1.3, [1.0, -0.5]),
+                       (0.0, 0.7, [1.0, 0.2]),
+                       (-0.5, 1.3, [1.0, 2.0 + 1e-8]))
+        location(a) = projection_marginal(LangevianStableDrivenSDE(
+            StableProcess(a, 0.3, 1.2, 0.2), LangevinDynamics(θ)), t, v).μ
+        alphas = 1 .+ [-1.001e-3, -0.999e-3, -1e-8, 0, 1e-8, 0.999e-3, 1.001e-3]
+        expected = [reference_location(a, θ, t, v) for a in alphas]
+        @test location.(alphas) ≈ expected rtol=2e-9 atol=2e-11
+        derivatives = map(alphas) do a
+            setprecision(160) do
+                h = big"1e-12"
+                (reference_location(BigFloat(a) + h, θ, t, v) -
+                 reference_location(BigFloat(a) - h, θ, t, v)) / (2h)
+            end
+        end
+        @test [ForwardDiff.derivative(location, a) for a in alphas] ≈ derivatives rtol=2e-7 atol=2e-9
+    end
+end

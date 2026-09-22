@@ -7,6 +7,7 @@ authors = ["THargreaves <tim.hargreaves@icloud.com>"]
 AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 HypergeometricFunctions = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Memoize = "c03570c3-d221-55d1-a50c-7939bbd78826"
@@ -37,11 +38,10 @@ TestItemRunner = "1.1.0"
 TestItems = "1.0.0"
 
 [extras]
-ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 HypothesisTests = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TestItemRunner = "f8b46487-2199-4994-9208-9a1283c18c0a"
 TestItems = "1c621080-faea-4a02-84b6-bbd5e436b8fe"
 
 [targets]
-test = ["ForwardDiff", "HypothesisTests", "Test", "TestItems", "TestItemRunner"]
+test = ["HypothesisTests", "Test", "TestItems", "TestItemRunner"]
