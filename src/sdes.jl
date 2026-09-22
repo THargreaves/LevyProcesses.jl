@@ -38,6 +38,17 @@ function compute_expAs(dyn::LangevinDynamics, dt::CuVector{T}) where {T<:Number}
     return expAs
 end
 
+function _sde_exprel2(x)
+    # Second exponential remainder, evaluated without cancellation near zero.
+    return abs(x) < 1e-4 ? 1/2 + x * (1/6 + x * (1/24 + x * (1/120 + x/720))) :
+        (expm1(x) - x) / x^2
+end
+
+function _integrated_response(dyn::LangevinDynamics, h::AbstractVector, t::Real)
+    z = dyn.θ * t
+    return @SVector [t * h[1] + t^2 * _sde_exprel2(z) * h[2], t * _exprel(z) * h[2]]
+end
+
 struct LevyDrivenLinearSDE{P<:LevyProcess,D<:LinearDynamics,V<:AbstractVector}
     driving_process::P
     linear_dynamics::D
@@ -84,6 +95,8 @@ function conditional_marginal_parameters(
     m, S = unscaled_conditional_marginal_parameters(subordinator_path, sde, t)
     m *= sde.driving_process.μ
     S *= sde.driving_process.σ^2
+    drift = deterministic_drift(sde.driving_process)
+    iszero(drift) || (m += drift * _integrated_response(sde.linear_dynamics, sde.noise_scaling, t))
     isnothing(x0) || (m += exp(sde.linear_dynamics, t) * x0)  # not scaled by μ_W
     return m, S
 end
@@ -148,7 +161,17 @@ function conditional_marginal_parameters(
         μs, Σs, μ, Σ, subordinator_paths.offsets, num_runs_ref
     )
 
+    _add_deterministic_mean!(μ, sde, t)
     return μ, Σ
+end
+
+function _add_deterministic_mean!(m::CuMatrix{T}, sde::NormalMixtureDrivenSDE, t::Real) where {T}
+    drift = deterministic_drift(sde.driving_process)
+    if !iszero(drift)
+        mean = drift * _integrated_response(sde.linear_dynamics, sde.noise_scaling, t)
+        m .+= CuArray(T.(collect(mean)))
+    end
+    return m
 end
 
 function calc_jump_contributions(
@@ -202,6 +225,7 @@ function conditional_marginal_parameters(
     μ = dropdims(sum(μs; dims=2); dims=2)
     Σ = dropdims(sum(Σs; dims=3); dims=3)
 
+    _add_deterministic_mean!(μ, sde, t)
     return μ, Σ
 end
 
@@ -304,18 +328,17 @@ function conditional_marginal(
 end
 
 function marginal(sde::StableDrivenSDE, x0::Real, t::Real)
-    dyn = sde.linear_dynamics
-    p = sde.driving_process
-
+    dyn, p = sde.linear_dynamics, sde.driving_process
     isfinite(t) && t > 0 || throw(ArgumentError("t must be finite and positive"))
-    σ_new = if dyn.a == 0
-        p.σ * t^(1 / p.α)
-    else
-        p.σ * (expm1(dyn.a * p.α * t) / (dyn.a * p.α))^(1 / p.α)
+    if iszero(dyn.a)
+        d = marginal(p, t)
+        return stable_s0_distribution(d.α, d.β, d.σ, d.μ + x0)
     end
-    μ_new = x0 * exp(dyn.a * t)
-
-    return Stable(p.α, p.β, σ_new, μ_new)
+    absolute = t * _exprel(p.α * dyn.a * t)
+    linear = t * _exprel(dyn.a * t)
+    response(s) = exp(dyn.a * s)
+    location = _stable_response_location(p, absolute, absolute, linear, response, (zero(t), t))
+    return stable_s0_distribution(p.α, p.β, p.σ * absolute^(1 / p.α), location + x0 * exp(dyn.a * t))
 end
 
 ##############################
@@ -327,27 +350,98 @@ struct LangevianStableDrivenSDE{P<:StableProcess,D<:LangevinDynamics}
     dynamics::D
 end
 
+# With u = g/B, ds = du / (θ(u - 1)). These real antiderivatives
+# integrate |u|^α/(u-1) and its signed version across a response zero; the imaginary
+# branch constant of ₂F₁ cancels between endpoints on the same side of u=1.
+function _stable_F(u::Real, α::Real)
+    iszero(u) && return zero(u)
+    value = abs(u)^(α + 1) / (α + 1) * real(
+        pFq((one(complex(u)), complex(α + 1)), (complex(α + 2),), complex(u)),
+    )
+    return -sign(u) * value
+end
+_signed_stable_F(u::Real, α::Real) = sign(u) * _stable_F(u, α)
+
+function _stable_response_moments(θ, t, u, α)
+    g0 = u[2]
+    if iszero(θ)
+        slope = u[1]
+        iszero(slope) && return (t * abs(g0)^α, t * sign(g0) * abs(g0)^α)
+        g1 = g0 + slope * t
+        absolute = (sign(g1) * abs(g1)^(α + 1) - sign(g0) * abs(g0)^(α + 1)) / ((α + 1) * slope)
+        signed = (abs(g1)^(α + 1) - abs(g0)^(α + 1)) / ((α + 1) * slope)
+        return absolute, signed
+    end
+    A, B = u[1] / θ + u[2], -u[1] / θ
+    iszero(A) && return (t * abs(B)^α, t * sign(B) * abs(B)^α)
+    if iszero(B)
+        absolute = abs(A)^α * t * _exprel(α * θ * t)
+        return absolute, sign(A) * absolute
+    end
+    ratio = A / B * exp(max(θ * t, zero(θ)))
+    if abs(ratio) <= 1/4
+        # Near a constant response the antiderivative endpoints approach its
+        # logarithmic singularity. The convergent binomial expansion avoids
+        # subtracting those values, retaining the finite exponential component.
+        total, coefficient = t, one(ratio)
+        # Fixed terms retain α derivatives when a binomial coefficient vanishes.
+        for k in 1:32
+            coefficient *= (α - k + 1) / k * ratio
+            term = coefficient * t * _exprel(-k * abs(θ) * t)
+            total += term
+        end
+        absolute = abs(B)^α * total
+        return absolute, sign(B) * absolute
+    end
+    # Evaluate g directly, rather than subtracting nearly equal z+c when θ≈0.
+    g1 = u[1] * t * _exprel(θ * t) + u[2] * exp(θ * t)
+    v0, v1 = g0 / B, g1 / B
+    factor = abs(B)^α / θ
+    absolute = factor * (_stable_F(v1, α) - _stable_F(v0, α))
+    signed = sign(B) * factor * (_signed_stable_F(v1, α) - _signed_stable_F(v0, α))
+    return absolute, signed
+end
+
+function _stable_response_location(p, absolute, signed, linear, response, knots)
+    iszero(p.β) && return p.μ * linear
+    correction = if abs(p.α - 1) <= 1e-4
+        # Only the S0 location is ill-conditioned near α=1: its analytic
+        # moment difference vanishes while tan(πα/2) diverges. Integrate the
+        # continuous combined expression, including its logarithmic α=1 limit.
+        logscale = log(absolute) / p.α
+        integrand(s) = begin
+            g = response(s)
+            iszero(g) ? zero(g) : g * _s0_tan_difference(p.α, log(abs(g)) - logscale)
+        end
+        quadgk(integrand, knots...; atol=1e-12, rtol=1e-10)[1]
+    else
+        tanpi(p.α / 2) * (signed * absolute^(1 / p.α - 1) - linear)
+    end
+    return p.μ * linear + p.β * p.σ * correction
+end
+
 """
     projection_marginal(sde, t, u)
 
-Stable marginal along the unit direction `u / norm(u)`, from a zero initial state.
+S0 stable marginal along the unit direction `u / norm(u)`, from a zero initial
+state. Response moments use closed forms; only the location correction within
+`1e-4` of α=1 uses quadrature to avoid cancellation.
 """
 function projection_marginal(sde::LangevianStableDrivenSDE, t::Real, u::AbstractVector)
     length(u) == 2 || throw(ArgumentError("projection vector must have length 2"))
     all(isfinite, u) && norm(u) > 0 || throw(ArgumentError("projection direction must be finite and nonzero"))
     isfinite(t) && t > 0 || throw(ArgumentError("t must be finite and positive"))
     u = u / norm(u)
-    θ = sde.dynamics.θ
-    p = sde.driving_process
-    response(s) = u[1] * (iszero(θ) ? s : expm1(θ * s) / θ) + u[2] * exp(θ * s)
-    # Split at a response zero to resolve the fractional-power cusp.
+    θ, p = sde.dynamics.θ, sde.driving_process
+    response(s) = u[1] * s * _exprel(θ * s) + u[2] * exp(θ * s)
+    absolute, signed = _stable_response_moments(θ, t, u, p.α)
+    linear = dot(u, _integrated_response(sde.dynamics, [0, 1], t))
     knots = [zero(float(t)), float(t)]
     if response(0) * response(t) < 0
         push!(knots, find_zero(response, (zero(t), t), Bisection()))
         sort!(knots)
     end
-    absolute = quadgk(s -> abs(response(s))^p.α, knots...)[1]
-    signed = quadgk(s -> sign(response(s)) * abs(response(s))^p.α, knots...)[1]
+    location = _stable_response_location(p, absolute, signed, linear, response, knots)
     β = clamp(p.β * signed / absolute, -one(p.β), one(p.β))
-    return Stable(p.α, β, p.σ * absolute^(1 / p.α), zero(p.σ))
+    return stable_s0_distribution(p.α, β, p.σ * absolute^(1 / p.α), location)
 end
